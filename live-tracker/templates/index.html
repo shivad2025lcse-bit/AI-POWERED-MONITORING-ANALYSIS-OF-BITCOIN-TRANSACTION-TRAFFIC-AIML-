@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Bitcoin Transaction Traffic Monitor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1420;
+            --card: #1a2133;
+            --tx: #e6e9f2;
+            --mut: #8b94ab;
+            --acc: #f7931a;
+            --bd: #2a3350
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--tx)
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--bd)
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0
+        }
+
+        h1 span {
+            color: var(--acc)
+        }
+
+        .pill {
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 99px;
+            background: #22304f
+        }
+
+        .grid {
+            display: grid;
+            gap: 14px;
+            padding: 18px 24px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--bd);
+            border-radius: 10px;
+            padding: 14px
+        }
+
+        .k {
+            font-size: 12px;
+            color: var(--mut)
+        }
+
+        .v {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 4px
+        }
+
+        .wide {
+            grid-column: span 2
+        }
+
+        @media(max-width:700px) {
+            .wide {
+                grid-column: span 1
+            }
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 5px 6px;
+            border-bottom: 1px solid var(--bd)
+        }
+
+        th {
+            color: var(--mut)
+        }
+
+        .lv {
+            padding: 2px 8px;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: bold;
+            color: #000
+        }
+
+        .LOW {
+            background: #9be15d
+        }
+
+        .MEDIUM {
+            background: #ffd23f
+        }
+
+        .HIGH {
+            background: #ff8a3d
+        }
+
+        .CRITICAL {
+            background: #ff4d4d
+        }
+
+        .NORMAL {
+            background: #4a5678;
+            color: #fff
+        }
+
+        canvas {
+            max-height: 220px
+        }
+
+        a {
+            color: var(--acc)
+        }
+
+        .mono {
+            font-family: monospace
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1><span>₿</span> AI-Powered Bitcoin Transaction Traffic Monitor</h1>
+        <div><span class="pill" id="mode">{{ 'DEMO DATA' if demo else 'LIVE: mempool.space' }}</span> <span class="pill"
+                id="status">starting…</span></div>
+    </header>
+    <div class="grid">
+        <div class="card">
+            <div class="k">Latest block</div>
+            <div class="v" id="blk">–</div>
+        </div>
+        <div class="card">
+            <div class="k">Mempool transactions (network)</div>
+            <div class="v" id="mp">–</div>
+        </div>
+        <div class="card">
+            <div class="k">Captured tx / min (sample)</div>
+            <div class="v" id="tpm">–</div>
+        </div>
+        <div class="card">
+            <div class="k">Anomalies (last hour)</div>
+            <div class="v" id="an">–</div>
+        </div>
+        <div class="card">
+            <div class="k">Transactions analysed</div>
+            <div class="v" id="tot">–</div>
+        </div>
+        <div class="card">
+            <div class="k">Isolation Forest</div>
+            <div class="v" id="ml">–</div>
+        </div>
+        <div class="card wide">
+            <div class="k">Traffic (captured tx/min) &amp; mempool size</div><canvas id="c1"></canvas>
+        </div>
+        <div class="card wide">
+            <div class="k">Average fee (BTC) &amp; anomalies per minute</div><canvas id="c2"></canvas>
+        </div>
+        <div class="card wide">
+            <div class="k">Latest anomalies</div>
+            <table id="tan"></table>
+        </div>
+        <div class="card wide">
+            <div class="k">Latest blocks</div>
+            <table id="tbl"></table>
+        </div>
+        <div class="card wide">
+            <div class="k">Live transaction feed</div>
+            <table id="ttx"></table>
+        </div>
+        <div class="card">
+            <div class="k">Export collected data</div>
+            <p style="line-height:1.9;font-size:13px">
+                <a href="/export/blocks.csv">blocks.csv</a><br><a
+                    href="/export/live_transactions.csv">live_transactions.csv</a><br>
+                <a href="/export/anomaly_detection.csv">anomaly_detection.csv</a><br><a
+                    href="/export/monitoring_statistics.csv">monitoring_statistics.csv</a>
+            </p>
+        </div>
+    </div>
+    <script>
+        const $ = id => document.getElementById(id), get = u => fetch(u).then(r => r.json());
+        const mk = (id, cfg) => new Chart($(id), cfg);
+        const opt = { animation: false, scales: { x: { ticks: { color: '#8b94ab', maxTicksLimit: 6 } }, y: { ticks: { color: '#8b94ab' } } }, plugins: { legend: { labels: { color: '#e6e9f2' } } } };
+        const c1 = mk('c1', {
+            type: 'line', data: { labels: [], datasets: [{ label: 'captured tx/min', data: [], borderColor: '#f7931a', tension: .3 }, { label: 'mempool txs', data: [], borderColor: '#4da3ff', tension: .3, yAxisID: 'y2' }] },
+            options: { ...opt, scales: { ...opt.scales, y2: { position: 'right', ticks: { color: '#4da3ff' }, grid: { display: false } } } }
+        });
+        const c2 = mk('c2', {
+            type: 'bar', data: { labels: [], datasets: [{ type: 'line', label: 'avg fee (BTC)', data: [], borderColor: '#9be15d', tension: .3, yAxisID: 'y' }, { label: 'anomalies', data: [], backgroundColor: '#ff4d4d', yAxisID: 'y2' }] },
+            options: { ...opt, scales: { ...opt.scales, y2: { position: 'right', ticks: { color: '#ff4d4d', precision: 0 }, grid: { display: false } } } }
+        });
+        const short = s => s.slice(0, 8) + '…' + s.slice(-6), t = s => s.slice(11, 19);
+        function tbl(id, head, rows) { $(id).innerHTML = '<tr>' + head.map(h => '<th>' + h + '</th>').join('') + '</tr>' + rows.map(r => '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') }
+        const lv = l => `<span class="lv ${l}">${l}</span>`;
+        async function tick() {
+            try {
+                const s = await get('/api/summary');
+                $('status').textContent = s.status + (s.error ? ' – ' + s.error.slice(0, 60) : '');
+                if (s.latest_block) $('blk').textContent = '#' + s.latest_block.block_height;
+                if (s.latest_monitoring) { $('mp').textContent = (s.latest_monitoring.mempool_tx_count || 0).toLocaleString(); $('tpm').textContent = s.latest_monitoring.transactions_per_minute }
+                $('an').textContent = Object.entries(s.levels).filter(([k]) => k != 'NORMAL').reduce((a, [, v]) => a + v, 0);
+                $('tot').textContent = s.total_tx.toLocaleString(); $('ml').textContent = s.model_ready ? 'Trained' : 'Warming up';
+                const m = await get('/api/monitoring?limit=60');
+                c1.data.labels = c2.data.labels = m.map(r => t(r.timestamp));
+                c1.data.datasets[0].data = m.map(r => r.transactions_per_minute); c1.data.datasets[1].data = m.map(r => r.mempool_tx_count);
+                c2.data.datasets[0].data = m.map(r => r.average_fee_btc); c2.data.datasets[1].data = m.map(r => r.anomaly_count); c1.update(); c2.update();
+                const a = await get('/api/anomalies');
+                tbl('tan', ['Time', 'TxID', 'Level', 'Score', 'Reason'], a.map(r => [t(r.seen_at), `<span class="mono">${short(r.txid)}</span>`, lv(r.anomaly_level), r.anomaly_score, r.reason]));
+                const b = await get('/api/blocks');
+                tbl('tbl', ['Height', 'Time', 'Txs', 'Size (KB)', 'Fees (BTC)'], b.map(r => [r.block_height, t(r.timestamp), r.transaction_count, Math.round(r.block_size_bytes / 1024), r.total_fees_btc]));
+                const x = await get('/api/transactions');
+                tbl('ttx', ['Seen', 'TxID', 'Fee rate', 'vsize', 'Value BTC', 'Level'], x.map(r => [t(r.seen_at), `<span class="mono">${short(r.txid)}</span>`, r.fee_rate_sat_vbyte + ' s/vB', r.vsize, r.value_btc.toFixed(4), lv(r.anomaly_level)]));
+            } catch (e) { $('status').textContent = 'connection error' }
+        }
+        tick(); setInterval(tick, 5000);
+    </script>
+</body>
+
+</html>

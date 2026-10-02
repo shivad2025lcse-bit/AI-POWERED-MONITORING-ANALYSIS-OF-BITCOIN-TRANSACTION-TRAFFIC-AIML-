@@ -1,0 +1,10 @@
+target/
+data/
+.venv/
+.env
+*.log
+.idea/
+.vscode/**
+!.vscode/settings.json
+!.vscode/launch.json
+node_modules/

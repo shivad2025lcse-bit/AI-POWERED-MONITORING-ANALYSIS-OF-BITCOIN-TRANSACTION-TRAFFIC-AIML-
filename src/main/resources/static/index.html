@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f6f2">
+    <title>Bitcoin Traffic Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        @media(max-width:760px) {
+            .topbar-right {
+                min-width: 0;
+                flex: 1
+            }
+
+            .topbar-right>.search-field {
+                width: min(38vw, 140px) !important;
+                min-width: 0 !important;
+                flex: 1 1 80px;
+                padding: 0 4px;
+                gap: 4px
+            }
+
+            .connection-chip {
+                padding: 5px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a class="brand" href="#overview" aria-label="Bitcoin Monitor home">
+                <span class="brand-mark">₿</span>
+                <span class="brand-name">BITCOIN AI<span>TRANSACTION INTELLIGENCE</span></span>
+            </a>
+            <div class="workspace-label">NETWORK MONITOR</div>
+            <nav class="nav-list" aria-label="Main navigation">
+                <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>Dashboard</button>
+                <button class="nav-item" data-view="market"><span class="nav-icon">＄</span>Market Data</button>
+                <button class="nav-item" data-view="live-traffic"><span class="nav-icon">⌁</span>Live Traffic</button>
+                <button class="nav-item" data-view="anomalies"><span class="nav-icon">◎</span>AI Analysis</button>
+                <button class="nav-item" data-view="transactions"><span class="nav-icon">⇄</span>Transactions</button>
+                <button class="nav-item" data-view="wallets"><span class="nav-icon">◉</span>Wallets</button>
+                <button class="nav-item" data-view="alerts"><span class="nav-icon">♧</span>Risk Alerts <span
+                        class="nav-count" id="nav-alert-count">0</span></button>
+                <button class="nav-item" data-view="analytics"><span class="nav-icon">⌗</span>Network Analytics</button>
+                <button class="nav-item" data-view="reports"><span class="nav-icon">▤</span>Reports</button>
+                <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span>Settings</button>
+            </nav>
+            <div class="sidebar-bottom">
+                <div class="sidebar-health"><span class="pulse-dot" id="sidebar-dot"></span><span
+                        id="sidebar-provider">Connecting to network</span></div>
+                <div class="sidebar-caption">BITCOIN MAINNET · PUBLIC DATA</div>
+            </div>
+        </aside>
+
+        <main class="main-area">
+            <header class="topbar">
+                <div class="breadcrumb"><span>Network</span><span class="crumb-slash">/</span><strong
+                        id="page-name">Overview</strong></div>
+                <div class="topbar-right">
+                    <label class="search-field" style="width:250px;min-width:150px;height:30px"
+                        aria-label="Search Bitcoin transaction or block"><span>⌕</span><input id="global-search"
+                            type="search" placeholder="Search TXID, hash, height" autocomplete="off"><button
+                            id="global-search-submit" aria-label="Submit search">↵</button></label>
+                    <span class="utc-clock" id="clock">--:--:-- UTC</span>
+                    <span class="connection-chip" id="connection-chip"><i></i><span>Connecting</span></span>
+                    <button class="icon-button" id="refresh-button" title="Refresh data"
+                        aria-label="Refresh data">↻</button>
+                </div>
+            </header>
+
+            <div class="content-wrap">
+                <section class="page-heading">
+                    <div>
+                        <div class="eyebrow">BITCOIN AI TRANSACTION INTELLIGENCE</div>
+                        <h1 id="view-title">Bitcoin Network Overview</h1>
+                        <p id="view-subtitle">Live transaction activity and model-derived risk signals.</p>
+                    </div>
+                    <div class="heading-meta"><span class="live-indicator"><i></i>LIVE MONITOR</span><span
+                            id="last-sync">Waiting for first sync</span></div>
+                </section>
+
+                <div class="provider-banner" id="provider-banner" hidden><span class="banner-icon">!</span>
+                    <div><strong>Blockchain provider is temporarily unavailable</strong><span
+                            id="provider-message">Showing the last successfully stored data. Automatic retries continue
+                            in the background.</span></div><button id="banner-close"
+                        aria-label="Dismiss notice">×</button>
+                </div>
+
+                <section class="view-panel active" id="view-overview">
+                    <div class="metric-grid overview-metrics">
+                        <article class="metric-card accent-orange">
+                            <div class="metric-top"><span>Transactions · last hour</span><span
+                                    class="metric-symbol">⇄</span></div>
+                            <div class="metric-value" id="metric-total">—</div>
+                            <div class="metric-foot">Observed sample · not total network throughput</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>BTC volume · last hour</span><span
+                                    class="metric-symbol">₿</span></div>
+                            <div class="metric-value" id="metric-volume">—</div>
+                            <div class="metric-foot">Output volume in monitored transactions</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Active wallets</span><span class="metric-symbol">◉</span>
+                            </div>
+                            <div class="metric-value metric-unavailable" id="metric-wallets">Unavailable</div>
+                            <div class="metric-foot" id="metric-wallets-note">Daily on-chain address count unavailable
+                            </div>
+                        </article>
+                    </div>
+
+                    <div class="section-row market-section-heading">
+                        <div>
+                            <div class="panel-kicker">BITCOIN MARKET</div>
+                            <h2>Market snapshot</h2>
+                        </div><button class="text-button" data-open-view="market">Market details <span>→</span></button>
+                    </div>
+                    <div class="metric-grid market-summary-grid">
+                        <article class="metric-card accent-orange">
+                            <div class="metric-top"><span>BTC price · USD</span><span class="metric-symbol">₿</span>
+                            </div>
+                            <div class="metric-value market-price-value" id="market-summary-price">—</div>
+                            <div class="metric-foot" id="market-summary-updated">Waiting for market snapshot</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>24-hour change</span><span class="metric-symbol">↗</span>
+                            </div>
+                            <div class="metric-value" id="market-summary-change">—</div>
+                            <div class="metric-foot">CoinGecko spot market data</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Market capitalization</span><span
+                                    class="metric-symbol">◈</span></div>
+                            <div class="metric-value market-compact-value" id="market-summary-cap">—</div>
+                            <div class="metric-foot">BTC market cap · USD</div>
+                        </article>
+                        <article class="metric-card sentiment-summary-card">
+                            <div class="metric-top"><span>Fear &amp; Greed</span><span class="metric-symbol">◎</span>
+                            </div>
+                            <div class="metric-value" id="market-summary-sentiment">—</div>
+                            <div class="metric-foot" id="market-summary-sentiment-label">Alternative.me index</div>
+                        </article>
+                    </div>
+
+                    <div class="overview-grid">
+                        <article class="panel traffic-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-kicker">NETWORK ACTIVITY</div>
+                                    <h2>Live transaction traffic</h2>
+                                </div><span class="source-label">MONITORED SAMPLE</span>
+                            </div>
+                            <div class="chart-legend"><span><i class="legend-orange"></i>Transactions per
+                                    block</span><select id="traffic-range" aria-label="Traffic chart time range">
+                                    <option value="6">6 hours</option>
+                                    <option value="24" selected>24 hours</option>
+                                    <option value="72">3 days</option>
+                                </select></div>
+                            <div class="chart-wrap"><canvas id="traffic-chart"
+                                    aria-label="Transactions per block chart"></canvas>
+                                <div class="chart-empty" id="traffic-empty">No block history yet</div>
+                            </div>
+                        </article>
+                        <article class="panel risk-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-kicker">AI RISK MONITOR</div>
+                                    <h2>Transaction classifications</h2>
+                                </div><button class="text-button" data-open-view="alerts">All alerts
+                                    <span>→</span></button>
+                            </div>
+                            <div class="risk-list">
+                                <div><span><i class="risk-dot critical"></i>Critical</span><b id="risk-critical">—</b>
+                                </div>
+                                <div><span><i class="risk-dot high"></i>High</span><b id="risk-high">—</b></div>
+                                <div><span><i class="risk-dot medium"></i>Medium</span><b id="risk-medium">—</b></div>
+                                <div><span><i class="risk-dot normal"></i>Normal</span><b id="risk-normal">—</b></div>
+                            </div>
+                            <div class="sync-note">Latest block <strong id="metric-block-time">Waiting for network
+                                    data</strong></div>
+                        </article>
+                    </div>
+
+                    <div class="section-row">
+                        <div>
+                            <div class="panel-kicker">RECENT NETWORK ACTIVITY</div>
+                            <h2>Latest blocks</h2>
+                        </div><button class="text-button" data-open-view="blocks">All blocks <span>→</span></button>
+                    </div>
+                    <article class="panel table-panel">
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>HEIGHT</th>
+                                        <th>BLOCK HASH</th>
+                                        <th>TIME</th>
+                                        <th>TRANSACTIONS</th>
+                                        <th>SIZE</th>
+                                        <th>FEE TOTAL</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-blocks">
+                                    <tr>
+                                        <td colspan="6" class="empty-row">No block data yet. Initial synchronization
+                                            usually starts within a few seconds.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <div class="section-row">
+                        <div>
+                            <div class="panel-kicker">OBSERVED TRANSACTIONS</div>
+                            <h2>Latest transactions</h2>
+                        </div><button class="text-button" data-open-view="transactions">All transactions
+                            <span>→</span></button>
+                    </div>
+                    <article class="panel table-panel">
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>TXID</th>
+                                        <th>BLOCK</th>
+                                        <th>TIME</th>
+                                        <th>OUTPUT VALUE</th>
+                                        <th>FEE RATE</th>
+                                        <th>ASSESSMENT</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-transactions">
+                                    <tr>
+                                        <td colspan="6" class="empty-row">Transactions will appear when blocks are
+                                            synchronized.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                </section>
+
+                <section class="view-panel" id="view-market">
+                    <article class="panel market-status-panel">
+                        <div class="market-status-left"><span class="source-label">EXTERNAL MARKET DATA</span><strong
+                                id="market-status-text">Connecting to data providers…</strong></div>
+                        <span class="market-status-pill" id="market-status-pill">CONNECTING</span>
+                    </article>
+                    <div class="custom-history-controls market-alert-controls" role="group"
+                        aria-label="Market price alerts">
+                        <label for="market-drop-threshold">Alert on price drops (%)<input id="market-drop-threshold"
+                                type="number" min="0.1" max="50" step="0.1" value="3" inputmode="decimal"></label>
+                        <label for="market-rise-threshold">Alert on price rises (%)<input id="market-rise-threshold"
+                                type="number" min="0.1" max="50" step="0.1" value="3" inputmode="decimal"></label>
+                        <button class="history-analyze-button" id="market-notifications" type="button">Enable market
+                            alerts</button>
+                    </div>
+                    <div class="market-metrics-grid">
+                        <article class="metric-card accent-orange">
+                            <div class="metric-top"><span>Bitcoin price</span><span class="metric-symbol">₿</span></div>
+                            <div class="metric-value market-price-value" id="market-price">—</div>
+                            <div class="metric-foot">USD · CoinGecko</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>24h price change</span><span class="metric-symbol">↗</span>
+                            </div>
+                            <div class="metric-value" id="market-change">—</div>
+                            <div class="metric-foot">Percentage change</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>BTC market cap</span><span class="metric-symbol">◈</span>
+                            </div>
+                            <div class="metric-value market-compact-value" id="market-cap">—</div>
+                            <div class="metric-foot">USD</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>24h trading volume</span><span class="metric-symbol">⇄</span>
+                            </div>
+                            <div class="metric-value market-compact-value" id="market-volume">—</div>
+                            <div class="metric-foot">USD · spot exchanges</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Circulating supply</span><span class="metric-symbol">₿</span>
+                            </div>
+                            <div class="metric-value market-compact-value" id="market-circulating">—</div>
+                            <div class="metric-foot">BTC currently circulating</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Total supply</span><span class="metric-symbol">Σ</span></div>
+                            <div class="metric-value market-compact-value" id="market-total-supply">—</div>
+                            <div class="metric-foot">Provider-reported supply</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Maximum supply</span><span class="metric-symbol">∞</span>
+                            </div>
+                            <div class="metric-value market-compact-value" id="market-max-supply">—</div>
+                            <div class="metric-foot">Protocol cap · provider reported</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>All-time high</span><span class="metric-symbol">↗</span></div>
+                            <div class="metric-value market-compact-value" id="market-ath">—</div>
+                            <div class="metric-foot" id="market-ath-detail">CoinGecko reported</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Market rank</span><span class="metric-symbol">#</span></div>
+                            <div class="metric-value" id="market-rank">—</div>
+                            <div class="metric-foot">CoinGecko market-cap rank</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>BTC dominance</span><span class="metric-symbol">◒</span></div>
+                            <div class="metric-value" id="market-dominance">—</div>
+                            <div class="metric-foot">Share of total crypto market cap</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Global market cap</span><span class="metric-symbol">◈</span>
+                            </div>
+                            <div class="metric-value market-compact-value" id="market-global-cap">—</div>
+                            <div class="metric-foot">All tracked crypto assets · USD</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Global 24h volume</span><span class="metric-symbol">⇄</span>
+                            </div>
+                            <div class="metric-value market-compact-value" id="market-global-volume">—</div>
+                            <div class="metric-foot">All tracked crypto assets · USD</div>
+                        </article>
+                    </div>
+                    <div class="market-detail-grid">
+                        <article class="panel chart-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-kicker">HISTORICAL PRICE</div>
+                                    <h2 id="market-history-title">BTC / USD · full available history</h2>
+                                </div><span class="source-label" id="market-history-source">PUBLIC PRICE HISTORY ·
+                                    COINGECKO</span>
+                            </div>
+                            <div class="market-history-controls">
+                                <label for="market-asset-select">Asset<select id="market-asset-select"
+                                        aria-label="Asset for price history">
+                                        <option value="bitcoin">Bitcoin · BTC</option>
+                                    </select></label>
+                                <label for="market-history-range">Analysis period</label>
+                                <select id="market-history-range" aria-label="Bitcoin price history range">
+                                    <option value="1">24 hours</option>
+                                    <option value="7">7 days</option>
+                                    <option value="30">30 days</option>
+                                    <option value="365">1 year</option>
+                                    <option value="max" selected>All provider history</option>
+                                    <option value="custom">Custom dates</option>
+                                </select>
+                                <span id="market-history-period">Coverage and point count will reflect provider
+                                    records.</span>
+                            </div>
+                            <div class="custom-history-controls" id="custom-history-controls" hidden>
+                                <label for="market-history-from">From<input id="market-history-from"
+                                        type="date"></label>
+                                <label for="market-history-to">To<input id="market-history-to" type="date"></label>
+                                <button class="history-analyze-button" id="market-history-apply" type="button">Analyze
+                                    range</button>
+                                <span>Bitcoin launched in 2009. Price records begin when market data is available; dates
+                                    without real observations are not filled with estimates.</span>
+                            </div>
+                            <div class="chart-wrap large"><canvas id="market-price-chart"
+                                    aria-label="Bitcoin historical price chart"></canvas>
+                                <div class="chart-empty" id="market-history-empty">Waiting for historical prices</div>
+                            </div>
+                            <div class="market-history-stats">
+                                <div><span>Period return</span><strong id="market-history-return">—</strong></div>
+                                <div><span>Period high</span><strong id="market-history-high">—</strong></div>
+                                <div><span>Period low</span><strong id="market-history-low">—</strong></div>
+                                <div><span>Trend</span><strong id="market-history-direction">—</strong></div>
+                            </div>
+                        </article>
+                        <article class="panel sentiment-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-kicker">MARKET SENTIMENT</div>
+                                    <h2>Fear &amp; Greed Index</h2>
+                                </div><span class="source-label">ALTERNATIVE.ME</span>
+                            </div>
+                            <div class="sentiment-current"><strong id="market-fng-value">—</strong><span
+                                    id="market-fng-label">Awaiting index</span></div>
+                            <div class="sentiment-track"><span id="market-fng-marker"></span></div>
+                            <div class="sentiment-scale"><span>Fear</span><span>Neutral</span><span>Greed</span></div>
+                            <div class="sentiment-updated" id="market-fng-updated">No sentiment data yet</div>
+                        </article>
+                    </div>
+                    <article class="panel market-composition-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">MARKET COMPOSITION</div>
+                                <h2>Tracked assets and observed blocks</h2>
+                            </div>
+                            <label for="market-composition-mode">Compare<select id="market-composition-mode"
+                                    aria-label="Market composition metric">
+                                    <option value="marketCapUsd">Market cap</option>
+                                    <option value="volume24hUsd">24-hour volume</option>
+                                    <option value="circulatingSupply">Circulating supply</option>
+                                    <option value="blocks">Block transactions</option>
+                                    <option value="blockFees">Block fees</option>
+                                </select></label>
+                        </div>
+                        <p class="market-composition-caption" id="market-composition-caption">Tracked assets' share of
+                            their combined market cap.</p>
+                        <div class="market-composition-layout">
+                            <div class="composition-chart-host">
+                                <canvas id="market-composition-chart"
+                                    aria-label="Market composition pie chart"></canvas>
+                                <div class="composition-hover-readout" role="status" hidden></div>
+                            </div>
+                            <ul class="composition-legend" id="market-composition-legend"></ul>
+                        </div>
+                    </article>
+                    <article class="panel forecast-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">HISTORICAL WALK-FORWARD TEST</div>
+                                <h2>BTC price trend estimate</h2>
+                            </div>
+                            <label class="forecast-horizon-control" for="forecast-horizon">Forecast horizon
+                                <select id="forecast-horizon" aria-label="Bitcoin forecast horizon">
+                                    <option value="1">1 day</option>
+                                    <option value="7" selected>7 days</option>
+                                    <option value="30">30 days</option>
+                                    <option value="90">90 days</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="forecast-summary">
+                            <div><span>Estimated price</span><strong id="forecast-price">—</strong><small
+                                    id="forecast-date">Waiting for real history</small></div>
+                            <div><span>Model</span><strong id="forecast-model">30-day log-linear trend
+                                    baseline</strong><small id="forecast-coverage">Provider history coverage not
+                                    loaded</small></div>
+                        </div>
+                        <div class="forecast-metrics" aria-live="polite">
+                            <div><span>Backtest MAE</span><strong id="forecast-mae">—</strong></div>
+                            <div><span>Backtest MAPE</span><strong id="forecast-mape">—</strong></div>
+                            <div><span>Directional accuracy</span><strong id="forecast-direction">—</strong></div>
+                            <div><span>Tested forecasts</span><strong id="forecast-samples">—</strong></div>
+                        </div>
+                        <div class="forecast-signal-wrap"><span>Baseline signal</span><strong id="forecast-signal"
+                                data-state="neutral">No reliable signal</strong></div>
+                        <p class="forecast-note" id="forecast-note">Scores are historical walk-forward results for the
+                            selected horizon, not a guarantee of future performance.</p>
+                    </article>
+                    <article class="panel market-assets-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">MARKET WATCH</div>
+                                <h2>Top 100 crypto assets by market cap</h2>
+                            </div>
+                            <div class="market-trend-callout">
+                                <span class="source-label">24H TREND LEADER</span>
+                                <strong id="market-trend-name">Waiting for market data</strong>
+                                <a id="market-trend-buy" class="market-buy-button"
+                                    href="https://www.coinbase.com/price/bitcoin" target="_blank"
+                                    rel="noopener noreferrer">Buy on Coinbase ↗</a>
+                            </div>
+                        </div>
+                        <div class="table-scroll">
+                            <table class="market-assets-table">
+                                <thead>
+                                    <tr>
+                                        <th>ASSET</th>
+                                        <th>PRICE</th>
+                                        <th>24H</th>
+                                        <th>7D</th>
+                                        <th>MARKET CAP</th>
+                                        <th>GLOBAL SHARE</th>
+                                        <th>VOLUME (24H)</th>
+                                        <th>DETAILS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="market-assets-table">
+                                    <tr>
+                                        <td colspan="8" class="empty-row">Waiting for market data.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="market-buy-note">Trade links open Coinbase. Availability, fees, and purchase terms
+                            depend on your region and account; this monitor does not execute trades.</p>
+                    </article>
+                    <article class="panel table-panel market-history-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">SENTIMENT HISTORY</div>
+                                <h2>Daily Fear &amp; Greed readings</h2>
+                            </div><span class="source-label">LAST 30 DAYS</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>DATE</th>
+                                        <th>INDEX</th>
+                                        <th>CLASSIFICATION</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="market-fng-history">
+                                    <tr>
+                                        <td colspan="3" class="empty-row">Waiting for sentiment history.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                    <p class="market-disclaimer">Market prices and sentiment are third-party estimates, not investment
+                        advice. Market data is cached and may be delayed; a stale label indicates a provider refresh
+                        failed.</p>
+                </section>
+
+                <section class="view-panel" id="view-live-traffic">
+                    <div class="metric-grid mempool-metrics">
+                        <article class="metric-card accent-orange">
+                            <div class="metric-top"><span>Pending transactions</span><span
+                                    class="metric-symbol">⇄</span></div>
+                            <div class="metric-value" id="mempool-count">—</div>
+                            <div class="metric-foot" id="mempool-updated">Waiting for provider snapshot</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Mempool size</span><span class="metric-symbol">▤</span></div>
+                            <div class="metric-value"><span id="mempool-size">—</span><small>MB</small></div>
+                            <div class="metric-foot">Virtual bytes waiting for confirmation</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Next-block fee</span><span class="metric-symbol">⌁</span>
+                            </div>
+                            <div class="metric-value"><span id="mempool-fee">—</span><small>sat/vB</small></div>
+                            <div class="metric-foot" id="mempool-fee-note">Recommended by mempool.space</div>
+                        </article>
+                    </div>
+                    <output class="mempool-status" id="mempool-status" aria-live="polite">Connecting to public mempool
+                        data…</output>
+                    <article class="panel table-panel mempool-table-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">UNCONFIRMED ACTIVITY</div>
+                                <h2>Recent mempool transactions</h2>
+                            </div><span class="source-label">PUBLIC PROVIDER · LIVE SAMPLE</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>TXID</th>
+                                        <th>VIRTUAL SIZE</th>
+                                        <th>FEE</th>
+                                        <th>FEE RATE</th>
+                                        <th>OUTPUT VALUE</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mempool-transactions">
+                                    <tr>
+                                        <td colspan="5" class="empty-row">Waiting for mempool data.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                    <div class="metric-grid overview-metrics">
+                        <article class="metric-card accent-orange">
+                            <div class="metric-top"><span>Observed transactions · last hour</span><span
+                                    class="metric-symbol">⇄</span></div>
+                            <div class="metric-value" id="traffic-total">—</div>
+                            <div class="metric-foot">Sample collected from synchronized blocks</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>BTC volume · last hour</span><span
+                                    class="metric-symbol">₿</span></div>
+                            <div class="metric-value" id="traffic-volume">—</div>
+                            <div class="metric-foot">Output volume in monitored transactions</div>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-top"><span>Latest block</span><span class="metric-symbol">▦</span></div>
+                            <div class="metric-value" id="traffic-height">—</div>
+                            <div class="metric-foot" id="traffic-time">Waiting for network data</div>
+                        </article>
+                    </div>
+                    <article class="panel chart-panel">
+                        <div class="panel-header">
+                            <div>
+                                <div class="panel-kicker">LIVE NETWORK ACTIVITY</div>
+                                <h2>Transactions per block</h2>
+                            </div><span class="source-label">MEMPOOL.SPACE · STORED SAMPLE</span>
+                        </div>
+                        <div class="chart-legend"><span><i class="legend-orange"></i>Transactions per
+                                block</span><select id="live-traffic-range" aria-label="Live traffic chart time range">
+                                <option value="6">6 hours</option>
+                                <option value="24" selected>24 hours</option>
+                                <option value="72">3 days</option>
+                                <option value="168">7 days</option>
+                            </select></div>
+                        <div class="chart-wrap large"><canvas id="live-traffic-chart"
+                                aria-label="Live transaction traffic chart"></canvas>
+                            <div class="chart-empty">No block history yet</div>
+                        </div>
+                    </article>
+                </section>
+
+                <section class="view-panel" id="view-wallets">
+                    <article class="panel unavailable-panel">
+                        <div class="panel-kicker">ADDRESS DATA</div>
+                        <h2>Wallet activity is not available</h2>
+                        <p>This monitor stores transaction summaries and input/output counts. It does not index Bitcoin
+                            addresses or identify wallet owners, so active-wallet totals cannot be calculated from the
+                            collected data.</p>
+                        <button class="text-button" data-open-view="transactions">Review monitored transactions
+                            <span>→</span></button>
+                    </article>
+                </section>
+
+                <section class="view-panel" id="view-transactions">
+                    <div class="panel table-panel full-panel">
+                        <div class="table-toolbar">
+                            <div class="table-controls"><label class="search-field"><span>⌕</span><input
+                                        id="transaction-search" type="search" placeholder="Search transaction ID"
+                                        autocomplete="off"></label><select id="transaction-level"
+                                    aria-label="Filter by anomaly level">
+                                    <option value="">All assessments</option>
+                                    <option>NORMAL</option>
+                                    <option>LOW</option>
+                                    <option>MEDIUM</option>
+                                    <option>HIGH</option>
+                                    <option>CRITICAL</option>
+                                </select></div><span class="result-count" id="transaction-count">0 records</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>TXID</th>
+                                        <th>BLOCK</th>
+                                        <th>TIME</th>
+                                        <th>INPUTS / OUTPUTS</th>
+                                        <th>VALUE</th>
+                                        <th>FEE RATE</th>
+                                        <th>SIZE</th>
+                                        <th>SCORE</th>
+                                        <th>LEVEL</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactions-table">
+                                    <tr>
+                                        <td colspan="9" class="empty-row">No monitored transactions yet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination"><span id="transaction-page-label">Page 1</span>
+                            <div><button class="page-button" id="transaction-prev">←</button><button class="page-button"
+                                    id="transaction-next">→</button></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-panel" id="view-blocks">
+                    <div class="panel table-panel full-panel">
+                        <div class="table-toolbar">
+                            <div>
+                                <div class="panel-kicker">CHAIN HISTORY</div>
+                                <h2>Observed blocks</h2>
+                            </div><span class="result-count">REAL BLOCKCHAIN DATA</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>HEIGHT</th>
+                                        <th>BLOCK HASH</th>
+                                        <th>TIMESTAMP</th>
+                                        <th>TX COUNT</th>
+                                        <th>SIZE</th>
+                                        <th>WEIGHT</th>
+                                        <th>AVG FEE</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="blocks-table">
+                                    <tr>
+                                        <td colspan="7" class="empty-row">No monitored blocks yet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination"><span id="block-page-label">Page 1</span>
+                            <div><button class="page-button" id="block-prev">←</button><button class="page-button"
+                                    id="block-next">→</button></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-panel" id="view-analytics">
+                    <div class="analytics-toolbar"><span>Calculated only from records stored by this
+                            monitor.</span><label class="analytics-range-label">Time range<select id="analytics-range">
+                                <option value="6">Last 6 hours</option>
+                                <option value="24" selected>Last 24 hours</option>
+                                <option value="72">Last 3 days</option>
+                                <option value="168">Last 7 days</option>
+                            </select></label></div>
+                    <div class="analytics-grid">
+                        <article class="panel chart-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-kicker">BLOCK ACTIVITY</div>
+                                    <h2>Transactions per block</h2>
+                                </div><span class="source-label">CALCULATED</span>
+                            </div>
+                            <div class="chart-wrap large"><canvas id="analytics-tx-chart"></canvas>
+                                <div class="chart-empty">No block history yet</div>
+                            </div>
+                        </article>
+                        <article class="panel chart-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-kicker">BLOCK CAPACITY</div>
+                                    <h2>Block size trend</h2>
+                                </div><span class="source-label">BYTES</span>
+                            </div>
+                            <div class="chart-wrap large"><canvas id="analytics-size-chart"></canvas>
+                                <div class="chart-empty">No block history yet</div>
+                            </div>
+                        </article>
+                    </div>
+                    <article class="panel table-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">RECENT SAMPLE</div>
+                                <h2>Traffic observations</h2>
+                            </div>
+                        </div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>TIME</th>
+                                        <th>HEIGHT</th>
+                                        <th>TRANSACTIONS</th>
+                                        <th>SIZE</th>
+                                        <th>AVG FEE (BTC)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analytics-table">
+                                    <tr>
+                                        <td colspan="5" class="empty-row">No observations available.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                </section>
+
+                <section class="view-panel" id="view-anomalies">
+                    <div class="panel table-panel full-panel">
+                        <div class="table-toolbar">
+                            <div>
+                                <div class="panel-kicker">MODEL-DERIVED SIGNALS</div>
+                                <h2>Unusual transaction patterns</h2>
+                            </div><span class="source-label">STATISTICAL BASELINE</span>
+                        </div>
+                        <div class="notice-inline">An outlier indicates statistical difference from the recent monitored
+                            sample. It does not establish fraud or identify ownership.</div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>TXID</th>
+                                        <th>BLOCK</th>
+                                        <th>TIME</th>
+                                        <th>OUTPUT VALUE</th>
+                                        <th>SCORE</th>
+                                        <th>LEVEL</th>
+                                        <th>EXPLANATION</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="anomalies-table">
+                                    <tr>
+                                        <td colspan="7" class="empty-row">No outliers detected in collected data.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-panel" id="view-alerts">
+                    <div class="panel table-panel full-panel">
+                        <div class="table-toolbar">
+                            <div>
+                                <div class="panel-kicker">MONITOR NOTIFICATIONS</div>
+                                <h2>Alerts</h2>
+                            </div><select id="alert-severity" aria-label="Filter alerts by severity">
+                                <option value="">All severities</option>
+                                <option>INFO</option>
+                                <option>WARNING</option>
+                                <option>HIGH</option>
+                                <option>CRITICAL</option>
+                            </select>
+                        </div>
+                        <div class="notice-inline">Alerts are created only when measured transaction features exceed the
+                            configured statistical thresholds.</div>
+                        <div class="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>SEVERITY</th>
+                                        <th>TYPE</th>
+                                        <th>DESCRIPTION</th>
+                                        <th>TIME</th>
+                                        <th>METRIC</th>
+                                        <th>STATUS</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alerts-table">
+                                    <tr>
+                                        <td colspan="7" class="empty-row">No alerts have been generated.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-panel" id="view-reports">
+                    <div class="panel report-panel">
+                        <div class="panel-header">
+                            <div>
+                                <div class="panel-kicker">DATA EXPORT</div>
+                                <h2>Download monitored records</h2>
+                            </div><span class="source-label">CSV</span>
+                        </div>
+                        <p class="panel-description">Exports contain locally collected records only. Transaction and
+                            block exports are limited to the latest 100 records.</p>
+                        <div class="report-actions"><button class="report-button" data-report="transactions">⇩
+                                Transactions</button><button class="report-button" data-report="blocks">⇩
+                                Blocks</button><button class="report-button" data-report="alerts">⇩ Risk alerts</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-panel" id="view-settings">
+                    <article class="panel settings-panel">
+                        <div class="panel-header">
+                            <div>
+                                <div class="panel-kicker">MONITOR CONFIGURATION</div>
+                                <h2>Connection and refresh</h2>
+                            </div>
+                        </div>
+                        <div class="settings-list">
+                            <div>
+                                <div><strong>Backend API</strong><span>Dashboard data source</span></div><code
+                                    id="settings-api">—</code>
+                            </div>
+                            <div>
+                                <div><strong>Blockchain provider</strong><span id="settings-provider">Checking
+                                        connection</span></div><span class="settings-state"
+                                    id="settings-provider-state">—</span>
+                            </div>
+                            <label><span><strong>Dashboard refresh</strong><small>Automatic data refresh
+                                        interval</small></span><select id="refresh-interval">
+                                    <option value="15">Every 15 seconds</option>
+                                    <option value="30">Every 30 seconds</option>
+                                    <option value="60">Every 60 seconds</option>
+                                </select></label>
+                        </div>
+                        <div class="health-list settings-health">
+                            <div><span><i class="health-dot" id="health-backend"></i>Backend</span><b
+                                    id="status-backend">Checking</b></div>
+                            <div><span><i class="health-dot" id="health-database"></i>Database</span><b
+                                    id="status-database">Checking</b></div>
+                            <div><span><i class="health-dot" id="health-provider"></i>Blockchain API</span><b
+                                    id="status-provider">Connecting</b></div>
+                            <div><span><i class="health-dot" id="health-monitor"></i>Monitor</span><b
+                                    id="status-monitor">Starting</b></div>
+                            <div><span><i class="health-dot" id="health-socket"></i>Live channel</span><b
+                                    id="status-socket">Connecting</b></div>
+                        </div>
+                        <div class="sync-note">Last successful sync <strong id="health-sync">Not synced yet</strong>
+                        </div>
+                    </article>
+                </section>
+
+                <footer class="page-footer"><span>CHAINWATCH <b>·</b> MONITORING ONLY</span><span>Public blockchain data
+                        · Model-derived signals are estimates</span></footer>
+            </div>
+        </main>
+    </div>
+    <dialog id="detail-dialog"><button class="dialog-close" id="dialog-close" aria-label="Close details">×</button>
+        <div id="detail-content"></div>
+    </dialog>
+    <script type="module" src="/js/dashboard.js"></script>
+</body>
+
+</html>

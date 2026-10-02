@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Bitcoin Traffic Monitor",
+            "request": "launch",
+            "mainClass": "com.bitcoin.monitoring.BitcoinMonitoringApplication",
+            "projectName": "bitcoin-traffic-monitor"
+        }
+    ]
+}

@@ -41,6 +41,21 @@ class MarketDataServiceTest {
         assertEquals(0.07, ((Map<String, Object>) ((List<?>) result.get("history")).getFirst()).get("priceUsd"));
     }
 
+        @Test
+        void yahooHistoryUsesRealCloseValuesWithinSelectedDateBounds() throws Exception {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode chart = mapper.readTree("{\"chart\":{\"result\":[{\"timestamp\":[1700000000,1700003600,1700007200],"
+                                + "\"indicators\":{\"quote\":[{\"close\":[25.5,null,26.25]}]}}],\"error\":null}}");
+
+                Map<String, Object> result = MarketDataService.buildYahooHistorySnapshot(
+                        chart, "custom", 1700000000L, 1700009000L, false);
+                List<?> history = (List<?>) result.get("history");
+
+                assertEquals("Yahoo Finance", result.get("source"));
+                assertEquals(2, result.get("observationCount"));
+                assertEquals(26.25, ((Map<String, Object>) history.getLast()).get("priceUsd"));
+        }
+
     @Test
     void forecastAndWalkForwardMetricsUseOnlyHistoricalObservations() {
         Instant start = Instant.parse("2024-01-01T00:00:00Z");

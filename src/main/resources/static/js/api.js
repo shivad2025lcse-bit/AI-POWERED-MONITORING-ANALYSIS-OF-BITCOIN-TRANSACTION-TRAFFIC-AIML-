@@ -16,8 +16,9 @@ export const api = {
     status: () => request("/api/monitoring/status"),
     mempool: () => request("/api/network/mempool"),
     market: () => request("/api/market/overview"),
-    marketHistory: (coinId, range, from, to) => {
+    marketHistory: (coinId, range, from, to, symbol) => {
         const params = new URLSearchParams({ coinId: coinId || "bitcoin", range: range || "7" });
+        if (symbol) params.set("symbol", symbol);
         if (from != null && to != null) { params.set("from", from); params.set("to", to); }
         return request(`/api/market/history?${params}`);
     },

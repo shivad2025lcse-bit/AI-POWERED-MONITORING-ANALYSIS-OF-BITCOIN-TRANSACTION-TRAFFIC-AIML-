@@ -26,12 +26,15 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public final class MarketDataService {
     private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
     private static final String BLOCKCHAIN_CHARTS_BASE_URL = "https://api.blockchain.info";
+    private static final String YAHOO_FINANCE_BASE_URL = "https://query1.finance.yahoo.com";
     private static final String COIN_ID_PATTERN = "[a-z0-9-]{1,64}";
+    private static final String TICKER_PATTERN = "[A-Za-z0-9._-]{1,24}";
 
     private final ObjectMapper mapper;
     private final RestClient coinGecko;
     private final RestClient alternativeMe;
     private final RestClient blockchainCharts;
+    private final RestClient yahooFinance;
     private final long cacheTtlMillis;
     private Map<String, Object> cachedSnapshot;
     private Map<String, Object> lastGoodSnapshot;
@@ -46,6 +49,7 @@ public final class MarketDataService {
         this.coinGecko = createClient(coinGeckoBaseUrl);
         this.alternativeMe = createClient(alternativeMeBaseUrl);
         this.blockchainCharts = createClient(BLOCKCHAIN_CHARTS_BASE_URL);
+        this.yahooFinance = createClient(YAHOO_FINANCE_BASE_URL);
         this.cacheTtlMillis = Math.max(1_000L, cacheTtlMillis);
     }
 
@@ -101,9 +105,18 @@ public final class MarketDataService {
     }
 
     public synchronized Map<String, Object> getMarketHistory(String coinId, String range, Long from, Long to) {
+        return getMarketHistory(coinId, range, from, to, null);
+    }
+
+    public synchronized Map<String, Object> getMarketHistory(
+            String coinId, String range, Long from, Long to, String symbol) {
         String normalizedCoinId = coinId == null ? "bitcoin" : coinId.toLowerCase();
         if (!normalizedCoinId.matches(COIN_ID_PATTERN)) {
             throw new IllegalArgumentException("Unsupported coin identifier");
+        }
+        String normalizedSymbol = symbol == null || symbol.isBlank() ? null : symbol.toUpperCase();
+        if (normalizedSymbol != null && !normalizedSymbol.matches(TICKER_PATTERN)) {
+            throw new IllegalArgumentException("Unsupported coin symbol");
         }
         String normalizedRange = range == null ? "" : range;
         String days = switch (normalizedRange) {
@@ -128,15 +141,33 @@ public final class MarketDataService {
                     : "/coins/" + normalizedCoinId + "/market_chart?vs_currency=usd&days=" + days;
             JsonNode response = request(coinGecko, path);
             Map<String, Object> snapshot = buildHistorySnapshot(response, normalizedRange, from, to, false);
+            if (snapshot.get("history") instanceof List<?> history && history.isEmpty()) {
+                throw new IllegalStateException("CoinGecko returned no historical prices");
+            }
             historyCache.put(cacheKey, new CachedHistory(snapshot, now));
             if (historyCache.size() > 32) historyCache.remove(historyCache.keySet().iterator().next());
             return new LinkedHashMap<>(snapshot);
         } catch (RuntimeException exception) {
             log.warn("CoinGecko historical price request failed: {}", exception.getMessage());
-            if (cached != null) {
+                if (cached != null && cached.snapshot().get("history") instanceof List<?> cachedHistory
+                    && !cachedHistory.isEmpty()) {
                 Map<String, Object> stale = new LinkedHashMap<>(cached.snapshot());
                 stale.put("stale", true);
                 return stale;
+            }
+            try {
+                String yahooSymbol = normalizedSymbol == null ? normalizedCoinId.toUpperCase() : normalizedSymbol;
+                String path = yahooHistoryPath(yahooSymbol, days, from, to);
+                JsonNode response = request(yahooFinance, path);
+                Map<String, Object> fallback = buildYahooHistorySnapshot(response, normalizedRange, from, to, false);
+                if (fallback.get("history") instanceof List<?> history && !history.isEmpty()) {
+                    historyCache.put(cacheKey, new CachedHistory(fallback, now));
+                    if (historyCache.size() > 32) historyCache.remove(historyCache.keySet().iterator().next());
+                    return new LinkedHashMap<>(fallback);
+                }
+            } catch (RuntimeException fallbackException) {
+                log.warn("Yahoo Finance historical price request failed for {}: {}", normalizedCoinId,
+                        fallbackException.getMessage());
             }
             if ("bitcoin".equals(normalizedCoinId)) {
                 try {
@@ -159,10 +190,54 @@ public final class MarketDataService {
                 }
             }
             Map<String, Object> unavailable = historySnapshot(List.of(), normalizedRange, "CoinGecko", false);
-            unavailable.put("error", "Historical price providers are temporarily unavailable");
+            unavailable.put("error", "CoinGecko and Yahoo Finance historical prices are temporarily unavailable");
             historyCache.put(cacheKey, new CachedHistory(unavailable, now));
             return new LinkedHashMap<>(unavailable);
         }
+    }
+
+    private static String yahooHistoryPath(String symbol, String range, Long from, Long to) {
+        String interval;
+        if ("custom".equals(range)) {
+            long now = Instant.now().getEpochSecond();
+            interval = from < now - 700L * 86_400 ? "1d" : "1h";
+            return "/v8/finance/chart/" + symbol + "-USD?period1=" + from + "&period2=" + to
+                    + "&interval=" + interval + "&events=history";
+        }
+        String yahooRange = switch (range) {
+            case "1" -> "1d";
+            case "7" -> "7d";
+            case "30" -> "1mo";
+            case "365" -> "1y";
+            case "max" -> "max";
+            default -> throw new IllegalArgumentException("Unsupported market history range");
+        };
+        interval = "1".equals(range) ? "5m" : "7".equals(range) || "30".equals(range) ? "1h" : "1d";
+        return "/v8/finance/chart/" + symbol + "-USD?range=" + yahooRange + "&interval=" + interval;
+    }
+
+    public static Map<String, Object> buildYahooHistorySnapshot(
+            JsonNode chartData, String range, Long from, Long to, boolean stale) {
+        List<Map<String, Object>> history = new ArrayList<>();
+        JsonNode result = chartData == null ? null : chartData.path("chart").path("result").path(0);
+        JsonNode timestamps = result == null ? null : result.path("timestamp");
+        JsonNode quotes = result == null ? null : result.path("indicators").path("quote").path(0).path("close");
+        if (timestamps != null && timestamps.isArray() && quotes != null && quotes.isArray()) {
+            for (int index = 0; index < Math.min(timestamps.size(), quotes.size()); index++) {
+                JsonNode timestampNode = timestamps.get(index);
+                JsonNode priceNode = quotes.get(index);
+                if (!timestampNode.canConvertToLong() || !priceNode.isNumber()) continue;
+                long timestamp = timestampNode.asLong();
+                double price = priceNode.asDouble();
+                if (price <= 0 || !Double.isFinite(price)
+                        || (from != null && timestamp < from) || (to != null && timestamp > to)) continue;
+                Map<String, Object> point = new LinkedHashMap<>();
+                point.put("timestamp", Instant.ofEpochSecond(timestamp).toString());
+                point.put("priceUsd", price);
+                history.add(point);
+            }
+        }
+        return historySnapshot(history, range, "Yahoo Finance", stale);
     }
 
     public synchronized Map<String, Object> getPriceForecast(String range, int horizonDays) {

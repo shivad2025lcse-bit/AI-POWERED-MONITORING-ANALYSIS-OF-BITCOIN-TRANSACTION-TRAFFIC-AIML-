@@ -73,6 +73,24 @@
                             id="global-search-submit" aria-label="Submit search">↵</button></label>
                     <span class="utc-clock" id="clock">--:--:-- UTC</span>
                     <span class="connection-chip" id="connection-chip"><i></i><span>Connecting</span></span>
+                    <div class="notification-wrap" aria-live="polite">
+                        <button class="icon-button notification-button" id="notification-bell" title="Notifications"
+                            aria-label="View notifications">
+                            <span aria-hidden="true">🔔</span>
+                            <span class="notification-badge" id="notification-badge" hidden>0</span>
+                        </button>
+                        <aside class="notification-panel" id="notification-panel" hidden>
+                            <div class="notification-header">
+                                <div>
+                                    <div class="notification-kicker">LIVE ALERTS</div>
+                                    <h3>Notifications</h3>
+                                </div>
+                                <button class="text-button notification-mark-read" id="notification-mark-read"
+                                    type="button">View all</button>
+                            </div>
+                            <div class="notification-list" id="notification-list"></div>
+                        </aside>
+                    </div>
                     <button class="icon-button" id="refresh-button" title="Refresh data"
                         aria-label="Refresh data">↻</button>
                 </div>
@@ -165,7 +183,14 @@
                                     <option value="6">6 hours</option>
                                     <option value="24" selected>24 hours</option>
                                     <option value="72">3 days</option>
+                                    <option value="144">6 days</option>
+                                    <option value="custom">Custom</option>
                                 </select></div>
+                            <div class="custom-history-controls" id="traffic-custom-range" hidden>
+                                <label>From<input id="traffic-from" type="date"></label>
+                                <label>To<input id="traffic-to" type="date"></label>
+                                <button class="history-analyze-button" id="traffic-apply" type="button">Apply</button>
+                            </div>
                             <div class="chart-wrap"><canvas id="traffic-chart"
                                     aria-label="Transactions per block chart"></canvas>
                                 <div class="chart-empty" id="traffic-empty">No block history yet</div>
@@ -600,8 +625,14 @@
                                 <option value="6">6 hours</option>
                                 <option value="24" selected>24 hours</option>
                                 <option value="72">3 days</option>
-                                <option value="168">7 days</option>
+                                <option value="144">6 days</option>
+                                <option value="custom">Custom</option>
                             </select></div>
+                        <div class="custom-history-controls" id="live-traffic-custom-range" hidden>
+                            <label>From<input id="live-traffic-from" type="date"></label>
+                            <label>To<input id="live-traffic-to" type="date"></label>
+                            <button class="history-analyze-button" id="live-traffic-apply" type="button">Apply</button>
+                        </div>
                         <div class="chart-wrap large"><canvas id="live-traffic-chart"
                                 aria-label="Live transaction traffic chart"></canvas>
                             <div class="chart-empty">No block history yet</div>
@@ -706,8 +737,14 @@
                                 <option value="6">Last 6 hours</option>
                                 <option value="24" selected>Last 24 hours</option>
                                 <option value="72">Last 3 days</option>
-                                <option value="168">Last 7 days</option>
+                                <option value="144">Last 6 days</option>
+                                <option value="custom">Custom</option>
                             </select></label></div>
+                    <div class="custom-history-controls" id="analytics-custom-range" hidden>
+                        <label>From<input id="analytics-from" type="date"></label>
+                        <label>To<input id="analytics-to" type="date"></label>
+                        <button class="history-analyze-button" id="analytics-apply" type="button">Apply</button>
+                    </div>
                     <div class="analytics-grid">
                         <article class="panel chart-panel">
                             <div class="panel-header">

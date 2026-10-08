@@ -250,9 +250,9 @@ public class ApiController {
     @GetMapping("/market/history")
     public Map<String, Object> marketHistory(@RequestParam(defaultValue = "bitcoin") String coinId,
             @RequestParam(defaultValue = "7") String range, @RequestParam(required = false) Long from,
-            @RequestParam(required = false) Long to) {
+            @RequestParam(required = false) Long to, @RequestParam(required = false) String symbol) {
         try {
-            return marketData.getMarketHistory(coinId, range, from, to);
+            return marketData.getMarketHistory(coinId, range, from, to, symbol);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
         }

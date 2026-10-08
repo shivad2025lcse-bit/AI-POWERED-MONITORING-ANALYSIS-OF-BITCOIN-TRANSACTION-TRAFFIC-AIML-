@@ -11,6 +11,18 @@ const dateTime = (value) => value ? new Date(value).toLocaleString() : "—";
 const shortHash = (value, length = 16) => value && value.length > length ? `${value.slice(0, length)}…` : value || "—";
 const safe = (value) => String(value ?? "—").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const emptyRow = (columns, text) => `<tr><td colspan="${columns}" class="empty-row">${safe(text)}</td></tr>`;
+const fallbackMarketAssets = [
+    ["bitcoin", "Bitcoin", "BTC"], ["ethereum", "Ethereum", "ETH"], ["tether", "Tether", "USDT"],
+    ["binancecoin", "BNB", "BNB"], ["solana", "Solana", "SOL"], ["ripple", "XRP", "XRP"],
+    ["usd-coin", "USD Coin", "USDC"], ["dogecoin", "Dogecoin", "DOGE"], ["cardano", "Cardano", "ADA"],
+    ["tron", "TRON", "TRX"], ["avalanche-2", "Avalanche", "AVAX"], ["chainlink", "Chainlink", "LINK"],
+    ["bitcoin-cash", "Bitcoin Cash", "BCH"], ["polkadot", "Polkadot", "DOT"], ["stellar", "Stellar", "XLM"],
+    ["litecoin", "Litecoin", "LTC"], ["shiba-inu", "Shiba Inu", "SHIB"], ["sui", "Sui", "SUI"],
+    ["the-open-network", "Toncoin", "TON"], ["wrapped-bitcoin", "Wrapped Bitcoin", "WBTC"],
+    ["dai", "Dai", "DAI"], ["uniswap", "Uniswap", "UNI"], ["ethereum-classic", "Ethereum Classic", "ETC"],
+    ["near", "NEAR Protocol", "NEAR"], ["aptos", "Aptos", "APT"], ["internet-computer", "Internet Computer", "ICP"],
+    ["pepe", "Pepe", "PEPE"]
+].map(([id, name, symbol]) => ({ id, name, symbol }));
 
 function renderBlocks(rows, target) {
     target.innerHTML = rows?.length ? rows.map((block) => `<tr><td><span class="height-link" data-block-height="${block.height}">${fmt.format(block.height)}</span></td><td class="mono hash-cell" data-block-hash="${safe(block.hash)}" title="${safe(block.hash)}">${safe(shortHash(block.hash, 18))}</td><td>${safe(dateTime(block.timestamp))}</td><td class="mono">${fmt.format(block.transactionCount)}</td><td>${fmt.format(block.size)} B</td><td class="mono">${fmt.format(block.totalFees || 0)} BTC</td></tr>`).join("") : emptyRow(6, "No block data yet. The dashboard will update when a real block is synchronized.");
@@ -30,9 +42,11 @@ function drawChart(canvas, values, color = "#ee762a", labels = [], hoverPoints =
     const host = canvas.parentElement;
     const rect = canvas.getBoundingClientRect();
     const scale = window.devicePixelRatio || 1;
+    const context = canvas.getContext("2d");
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
     canvas.width = Math.max(1, Math.round(rect.width * scale));
     canvas.height = Math.max(1, Math.round(rect.height * scale));
-    const context = canvas.getContext("2d");
     context.scale(scale, scale);
     const width = rect.width;
     const height = rect.height;
@@ -93,13 +107,15 @@ function trafficChartData(data, metric) {
         const transactions = Number(data.transactions?.[index] || 0);
         const blockSize = Number(data.blockSize?.[index] || 0);
         const averageFee = Number(data.averageFeeBtc?.[index] || 0);
+        const pointValue = Number(values[index]);
         return {
             timestamp,
             title: blockHeight == null ? "Observed block" : `Block ${fmt.format(blockHeight)}`,
+            value: Number.isFinite(pointValue) ? pointValue : null,
             details: [
-                ["Transactions", fmt.format(transactions)],
-                ["Block size", `${fmt.format(blockSize)} B`],
-                ["Average fee", `${fmt.format(averageFee)} BTC`]
+                [metric === "blockSize" ? "Block size" : "Transactions", metric === "blockSize" ? `${fmt.format(blockSize)} B` : fmt.format(transactions)],
+                ["Average fee", `${fmt.format(averageFee)} BTC`],
+                ["Sample time", new Date(timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })]
             ]
         };
     });
@@ -149,15 +165,22 @@ function attachChartHover(canvas, points, coords, layout) {
         const hostRect = host.getBoundingClientRect();
         const pointerX = event.clientX - canvasRect.left;
         const plotX = Math.max(layout.pad.left, Math.min(canvasRect.width - layout.pad.right, pointerX));
-        const index = Math.round((plotX - layout.pad.left) / layout.chartWidth * (coords.length - 1));
+        const resolvedIndex = layout.chartWidth > 0 ? (plotX - layout.pad.left) / layout.chartWidth * (coords.length - 1) : 0;
+        const index = Math.min(coords.length - 1, Math.max(0, Math.round(resolvedIndex)));
         const point = points[index];
         const coordinate = coords[index];
+        if (!point || !coordinate) {
+            hideChartHover(host);
+            return;
+        }
         const x = canvasRect.left - hostRect.left + coordinate.x;
         const y = canvasRect.top - hostRect.top + coordinate.y;
-        const timestamp = new Date(point.timestamp);
+        const timestampValue = point?.timestamp ?? point?.time ?? point?.date;
+        const timestamp = timestampValue ? new Date(timestampValue) : null;
+        const validValue = Number.isFinite(Number(point?.value ?? point?.priceUsd)) ? Number(point.value ?? point.priceUsd) : null;
         const timeLabel = layout.showTime
-            ? timestamp.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
-            : timestamp.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+            ? (timestamp ? timestamp.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Time unavailable")
+            : (timestamp ? timestamp.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "Date unavailable");
 
         const coin = layout.hoverDetails;
         const rows = coin ? [
@@ -168,11 +191,9 @@ function attachChartHover(canvas, points, coords, layout) {
             ["Market rank", coin.marketCapRank == null ? "Not reported" : `#${fmt.format(coin.marketCapRank)}`]
         ] : point.details || [];
         const title = point.title || (coin ? `${coin.name} · ${String(coin.symbol || "").toUpperCase()}` : "");
-        const value = point.priceUsd == null
-            ? layout.formatValue(point.value)
-            : usd(point.priceUsd);
-        const detailRows = rows.map(([label, value]) => `<span>${safe(label)}: ${safe(value)}</span>`).join("");
-        readout.innerHTML = `${title ? `<strong>${safe(title)}</strong>` : ""}<strong>${safe(value)}</strong><span>${safe(timeLabel)}</span>${detailRows}`;
+        const value = validValue != null ? (layout.formatValue ? layout.formatValue(validValue) : fmt.format(validValue)) : (point.priceUsd != null ? usd(point.priceUsd) : "—");
+        const detailRows = rows.map(([label, rowValue]) => `<span>${safe(label)}: ${safe(rowValue)}</span>`).join("");
+        readout.innerHTML = `${title ? `<strong>${safe(title)}</strong>` : ""}<strong>${safe(layout.metricLabel ? `${layout.metricLabel}: ${value}` : value)}</strong><span>${safe(timeLabel)}</span>${detailRows}`;
         readout.hidden = false;
         guide.hidden = false;
         marker.hidden = false;
@@ -682,7 +703,10 @@ async function loadMarketData() {
     $("#custom-history-controls").hidden = !customRange;
     const bounds = customRange ? getCustomHistoryBounds() : {};
     const data = await api.market();
-    const assets = Array.isArray(data.assets) ? data.assets : [];
+    const providerAssets = Array.isArray(data.assets) ? data.assets : [];
+    const assetsById = new Map(fallbackMarketAssets.map((asset) => [asset.id, asset]));
+    providerAssets.forEach((asset) => assetsById.set(asset.id, asset));
+    const assets = [...assetsById.values()];
     const requestedAssetId = $("#market-asset-select").value || localStorage.getItem("market-analysis-asset") || "bitcoin";
     const selectedAsset = assets.find((asset) => asset.id === requestedAssetId) || assets[0];
     if (selectedAsset) {
@@ -692,7 +716,8 @@ async function loadMarketData() {
     }
     const coinId = selectedAsset?.id || "bitcoin";
     const [historyResult, forecastResult] = await Promise.all([
-        api.marketHistory(coinId, range, bounds.from, bounds.to).then((value) => ({ value }), (error) => ({ error })),
+        api.marketHistory(coinId, range, bounds.from, bounds.to, selectedAsset?.symbol)
+            .then((value) => ({ value }), (error) => ({ error })),
         api.marketForecast(coinId, range, horizon, bounds.from, bounds.to).then((value) => ({ value }), (error) => ({ error }))
     ]);
     const market = data.market;
@@ -811,6 +836,29 @@ function setHealth(name, value) {
     if (dot) dot.className = `health-dot ${["CONNECTED", "RUNNING"].includes(value) ? "ok" : ["DEGRADED", "CONNECTING"].includes(value) ? "warn" : "bad"}`;
 }
 
+function formatMarketSummaryRows(message) {
+    if (!message || !String(message).includes("|")) return null;
+    const rows = String(message).split(/\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+            const match = line.match(/^(.+?)\s*\(([^)]+)\)\s*\|\s*([^|]+?)\s*\|\s*(.+)$/);
+            if (!match) return null;
+            const [, name, code, price, changeText] = match;
+            const normalized = String(changeText).replace(/\s+/g, " ").trim();
+            const changeMatch = normalized.match(/([+-]?\d+(?:\.\d+)?)%/);
+            const changeValue = Number(changeMatch ? changeMatch[1] : 0);
+            const hasMovement = changeText && Number.isFinite(changeValue);
+            const direction = hasMovement && changeValue < 0 ? "down" : "up";
+            const arrow = direction === "down" ? "↓" : "↑";
+            const percent = changeMatch ? `${changeMatch[1]}%` : normalized;
+            return `<div class="coin-price-row"><div class="coin-row-main"><span class="coin-row-name">${safe(name.trim())}</span><span class="coin-row-code">${safe(code.trim())}</span></div><span class="coin-row-price">${safe(price.trim())}</span><span class="coin-row-change ${direction}">${arrow} ${safe(percent)}</span></div>`;
+        })
+        .filter(Boolean);
+
+    return rows.length ? `<div class="notification-market-summary">${rows.join("")}</div>` : null;
+}
+
 function renderNotificationList(items = []) {
     const list = document.getElementById("notification-list");
     if (!list) return;
@@ -821,7 +869,10 @@ function renderNotificationList(items = []) {
     list.innerHTML = items.slice(0, 5).map((item) => {
         const severity = (item.severity || "INFO").toUpperCase();
         const tone = severity === "CRITICAL" || severity === "HIGH" ? "warning" : "alert";
-        return `<div class="notification-item ${tone}"><strong>${safe(item.title || "Network alert")}</strong><span>${safe(item.message || "Monitoring event detected")}</span><small>${safe(item.time || "Just now")}</small></div>`;
+        const body = item.title === "Coin prices · 24-hour change"
+            ? formatMarketSummaryRows(item.message)
+            : `<span>${safe(item.message || "Monitoring event detected")}</span>`;
+        return `<div class="notification-item ${tone}"><strong>${safe(item.title || "Network alert")}</strong>${body}<small>${safe(item.time || "Just now")}</small></div>`;
     }).join("");
 }
 

@@ -245,6 +245,190 @@ body {
     border-color: #efb58f
 }
 
+.notification-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center
+}
+
+.notification-button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    overflow: visible
+}
+
+.notification-badge {
+    position: absolute;
+    right: -7px;
+    top: -7px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #d76045;
+    color: #fff;
+    font: 700 9px var(--mono);
+    display: grid;
+    place-items: center;
+    border: 2px solid #fff;
+    box-shadow: 0 4px 10px rgba(215, 96, 69, .3)
+}
+
+.notification-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 12px);
+    width: min(360px, calc(100vw - 36px));
+    background: #fff;
+    border: 1px solid #ecf0ea;
+    border-radius: 12px;
+    box-shadow: 0 18px 48px rgba(26, 34, 29, .12);
+    padding: 12px 12px 10px;
+    z-index: 20
+}
+
+.notification-panel[hidden] {
+    display: none
+}
+
+.notification-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 2px 4px 10px;
+    border-bottom: 1px solid #edf0eb
+}
+
+.notification-kicker {
+    font: 9px var(--mono);
+    color: #8a918a;
+    letter-spacing: 0.06em;
+    text-transform: uppercase
+}
+
+.notification-header h3 {
+    margin: 4px 0 0;
+    font: 700 16px var(--display);
+    color: #202522
+}
+
+.notification-mark-read {
+    color: #d16a2a;
+    font: 600 10px "DM Sans", sans-serif;
+    padding: 0
+}
+
+.notification-list {
+    display: grid;
+    gap: 8px;
+    padding-top: 10px;
+    max-height: 320px;
+    overflow: auto
+}
+
+.notification-item {
+    display: grid;
+    gap: 7px;
+    padding: 10px 10px 9px;
+    border-radius: 10px;
+    border: 1px solid #edf1ee;
+    background: linear-gradient(180deg, #fff 0%, #fbfbf9 100%)
+}
+
+.notification-item.warning {
+    border-color: #f7d9c5;
+    background: linear-gradient(180deg, #fffaf5 0%, #fff4ee 100%)
+}
+
+.notification-item strong {
+    font: 600 12px "DM Sans", sans-serif;
+    color: #202522;
+    line-height: 1.35
+}
+
+.notification-item span {
+    color: #4d564f;
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: normal
+}
+
+.notification-market-summary {
+    display: grid;
+    gap: 5px;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid #edf1ee
+}
+
+.coin-price-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0
+}
+
+.coin-row-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0
+}
+
+.coin-row-name {
+    color: #202522;
+    font: 700 12px "DM Sans", sans-serif
+}
+
+.coin-row-code {
+    color: #76807a;
+    font: 700 9px var(--mono);
+    letter-spacing: .05em;
+    background: #f1f3f0;
+    border-radius: 999px;
+    padding: 2px 5px;
+    text-transform: uppercase
+}
+
+.coin-row-price {
+    color: #23302b;
+    font: 600 11px var(--mono)
+}
+
+.coin-row-change {
+    justify-self: end;
+    font: 700 11px var(--mono);
+    white-space: nowrap
+}
+
+.coin-row-change.up {
+    color: #1d7a4d
+}
+
+.coin-row-change.down {
+    color: #b94a3d
+}
+
+.notification-item small {
+    color: #7d867e;
+    font: 10px var(--mono)
+}
+
+.notification-empty {
+    padding: 14px 10px 8px;
+    color: #7d867e;
+    font-size: 11px;
+    text-align: center
+}
+
+.notification-button.has-alerts {
+    border-color: #f0b07d;
+    box-shadow: 0 0 0 3px rgba(238, 118, 42, .08)
+}
+
 .content-wrap {
     max-width: 1440px;
     margin: auto;

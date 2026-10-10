@@ -9,12 +9,15 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,10 +39,15 @@ public final class MarketDataService {
     private final RestClient blockchainCharts;
     private final RestClient yahooFinance;
     private final long cacheTtlMillis;
+    private final Object historyRequestLock = new Object();
+    private final Object coinGeckoHistoryRequestLock = new Object();
+    private long nextHistoryRequestNanos;
+    private long nextCoinGeckoHistoryRequestNanos;
+    private long coinGeckoHistoryCooldownUntilNanos;
     private Map<String, Object> cachedSnapshot;
     private Map<String, Object> lastGoodSnapshot;
     private Instant cachedAt;
-    private final Map<String, CachedHistory> historyCache = new LinkedHashMap<>();
+    private final Map<String, CachedHistory> historyCache = new ConcurrentHashMap<>();
 
     public MarketDataService(ObjectMapper mapper,
             @Value("${market.coingecko.base-url}") String coinGeckoBaseUrl,
@@ -96,19 +104,19 @@ public final class MarketDataService {
         }
     }
 
-    public synchronized Map<String, Object> getMarketHistory(String range) {
+    public Map<String, Object> getMarketHistory(String range) {
         return getMarketHistory("bitcoin", range, null, null);
     }
 
-    public synchronized Map<String, Object> getMarketHistory(String range, Long from, Long to) {
+    public Map<String, Object> getMarketHistory(String range, Long from, Long to) {
         return getMarketHistory("bitcoin", range, from, to);
     }
 
-    public synchronized Map<String, Object> getMarketHistory(String coinId, String range, Long from, Long to) {
+    public Map<String, Object> getMarketHistory(String coinId, String range, Long from, Long to) {
         return getMarketHistory(coinId, range, from, to, null);
     }
 
-    public synchronized Map<String, Object> getMarketHistory(
+    public Map<String, Object> getMarketHistory(
             String coinId, String range, Long from, Long to, String symbol) {
         String normalizedCoinId = coinId == null ? "bitcoin" : coinId.toLowerCase();
         if (!normalizedCoinId.matches(COIN_ID_PATTERN)) {
@@ -128,24 +136,46 @@ public final class MarketDataService {
         if ("custom".equals(days) && (from == null || to == null || from >= to || to > nowEpochSeconds)) {
             throw new IllegalArgumentException("Custom history requires a valid past start and end time");
         }
-        String cacheKey = normalizedCoinId + ":" + days + ":" + from + ":" + to;
+        String cacheKey = normalizedCoinId + ":" + normalizedSymbol + ":" + days + ":" + from + ":" + to;
         Instant now = Instant.now();
         CachedHistory cached = historyCache.get(cacheKey);
         if (cached != null && cached.cachedAt().plusMillis(cacheTtlMillis).isAfter(now)) {
             return new LinkedHashMap<>(cached.snapshot());
         }
 
+        boolean yahooAttempted = normalizedSymbol != null && !"bitcoin".equals(normalizedCoinId);
+        if (yahooAttempted) {
+            try {
+                JsonNode response = requestHistoricalPrice(yahooFinance,
+                        yahooHistoryPath(normalizedSymbol, days, from, to));
+                Map<String, Object> yahooHistory = buildYahooHistorySnapshot(
+                        response, normalizedRange, from, to, false);
+                if (yahooHistory.get("history") instanceof List<?> history && !history.isEmpty()) {
+                    historyCache.put(cacheKey, new CachedHistory(yahooHistory, now));
+                    if (historyCache.size() > 32) {
+                        historyCache.keySet().stream().findFirst().ifPresent(historyCache::remove);
+                    }
+                    return new LinkedHashMap<>(yahooHistory);
+                }
+            } catch (RuntimeException exception) {
+                log.debug("Yahoo Finance historical price request failed for {}: {}", normalizedCoinId,
+                        exception.getMessage());
+            }
+        }
+
         try {
             String path = "custom".equals(days)
                     ? "/coins/" + normalizedCoinId + "/market_chart/range?vs_currency=usd&from=" + from + "&to=" + to
                     : "/coins/" + normalizedCoinId + "/market_chart?vs_currency=usd&days=" + days;
-            JsonNode response = request(coinGecko, path);
+            JsonNode response = requestHistoricalPrice(coinGecko, path);
             Map<String, Object> snapshot = buildHistorySnapshot(response, normalizedRange, from, to, false);
             if (snapshot.get("history") instanceof List<?> history && history.isEmpty()) {
                 throw new IllegalStateException("CoinGecko returned no historical prices");
             }
             historyCache.put(cacheKey, new CachedHistory(snapshot, now));
-            if (historyCache.size() > 32) historyCache.remove(historyCache.keySet().iterator().next());
+            if (historyCache.size() > 32) {
+                historyCache.keySet().stream().findFirst().ifPresent(historyCache::remove);
+            }
             return new LinkedHashMap<>(snapshot);
         } catch (RuntimeException exception) {
             log.warn("CoinGecko historical price request failed: {}", exception.getMessage());
@@ -155,19 +185,23 @@ public final class MarketDataService {
                 stale.put("stale", true);
                 return stale;
             }
-            try {
-                String yahooSymbol = normalizedSymbol == null ? normalizedCoinId.toUpperCase() : normalizedSymbol;
-                String path = yahooHistoryPath(yahooSymbol, days, from, to);
-                JsonNode response = request(yahooFinance, path);
-                Map<String, Object> fallback = buildYahooHistorySnapshot(response, normalizedRange, from, to, false);
-                if (fallback.get("history") instanceof List<?> history && !history.isEmpty()) {
-                    historyCache.put(cacheKey, new CachedHistory(fallback, now));
-                    if (historyCache.size() > 32) historyCache.remove(historyCache.keySet().iterator().next());
-                    return new LinkedHashMap<>(fallback);
+            if (!yahooAttempted) {
+                try {
+                    String yahooSymbol = normalizedSymbol == null ? normalizedCoinId.toUpperCase() : normalizedSymbol;
+                    String path = yahooHistoryPath(yahooSymbol, days, from, to);
+                    JsonNode response = requestHistoricalPrice(yahooFinance, path);
+                    Map<String, Object> fallback = buildYahooHistorySnapshot(response, normalizedRange, from, to, false);
+                    if (fallback.get("history") instanceof List<?> history && !history.isEmpty()) {
+                        historyCache.put(cacheKey, new CachedHistory(fallback, now));
+                        if (historyCache.size() > 32) {
+                            historyCache.keySet().stream().findFirst().ifPresent(historyCache::remove);
+                        }
+                        return new LinkedHashMap<>(fallback);
+                    }
+                } catch (RuntimeException fallbackException) {
+                    log.warn("Yahoo Finance historical price request failed for {}: {}", normalizedCoinId,
+                            fallbackException.getMessage());
                 }
-            } catch (RuntimeException fallbackException) {
-                log.warn("Yahoo Finance historical price request failed for {}: {}", normalizedCoinId,
-                        fallbackException.getMessage());
             }
             if ("bitcoin".equals(normalizedCoinId)) {
                 try {
@@ -240,22 +274,30 @@ public final class MarketDataService {
         return historySnapshot(history, range, "Yahoo Finance", stale);
     }
 
-    public synchronized Map<String, Object> getPriceForecast(String range, int horizonDays) {
+    public Map<String, Object> getPriceForecast(String range, int horizonDays) {
         return getMarketForecast("bitcoin", range, horizonDays, null, null);
     }
 
-    public synchronized Map<String, Object> getMarketForecast(
+    public Map<String, Object> getMarketForecast(
             String coinId, String range, int horizonDays, Long from, Long to) {
+        return getMarketForecast(coinId, range, horizonDays, from, to, null);
+    }
+
+    public Map<String, Object> getMarketForecast(
+            String coinId, String range, int horizonDays, Long from, Long to, String symbol) {
         if (horizonDays < 1 || horizonDays > 90) {
             throw new IllegalArgumentException("Forecast horizon must be between 1 and 90 days");
         }
-        Map<String, Object> historySnapshot = getMarketHistory(coinId, range, from, to);
+        Map<String, Object> historySnapshot = getMarketHistory(coinId, range, from, to, symbol);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> history = (List<Map<String, Object>>) historySnapshot.get("history");
         Map<String, Object> forecast = buildForecastSnapshot(history, range, horizonDays,
             Boolean.TRUE.equals(historySnapshot.get("stale")));
         forecast.put("coinId", coinId == null ? "bitcoin" : coinId.toLowerCase());
         forecast.put("source", historySnapshot.getOrDefault("source", "CoinGecko"));
+        if (historySnapshot.containsKey("error")) {
+            forecast.put("historyError", historySnapshot.get("error"));
+        }
         return forecast;
     }
 
@@ -288,7 +330,19 @@ public final class MarketDataService {
             forecast.put("forecastPriceUsd", null);
             forecast.put("forecastChangePct", null);
             forecast.put("signal", "HOLD");
-            forecast.put("backtest", Map.of("samples", 0, "maeUsd", "", "mapePct", "", "directionalAccuracyPct", ""));
+            Map<String, Object> backtest = new LinkedHashMap<>();
+            backtest.put("samples", 0);
+            backtest.put("maeUsd", null);
+            backtest.put("mapePct", null);
+            backtest.put("directionalAccuracyPct", null);
+            backtest.put("precisionPct", null);
+            backtest.put("recallPct", null);
+            backtest.put("f1Pct", null);
+            backtest.put("truePositives", 0);
+            backtest.put("falsePositives", 0);
+            backtest.put("trueNegatives", 0);
+            backtest.put("falseNegatives", 0);
+            forecast.put("backtest", backtest);
             return forecast;
         }
 
@@ -301,6 +355,10 @@ public final class MarketDataService {
         double absoluteError = 0;
         double percentageError = 0;
         int directionMatches = 0;
+        int truePositives = 0;
+        int falsePositives = 0;
+        int trueNegatives = 0;
+        int falseNegatives = 0;
         int samples = 0;
         for (int originIndex = 31; originIndex < points.size(); originIndex++) {
             PricePoint origin = points.get(originIndex - 1);
@@ -315,15 +373,33 @@ public final class MarketDataService {
             double predicted = fitLogTrend(backtestTraining).predict(targetTime);
             absoluteError += Math.abs(predicted - actual.priceUsd());
             percentageError += Math.abs((predicted - actual.priceUsd()) / actual.priceUsd()) * 100;
-            if ((predicted >= origin.priceUsd()) == (actual.priceUsd() >= origin.priceUsd())) directionMatches++;
+            boolean predictedUp = predicted >= origin.priceUsd();
+            boolean actualUp = actual.priceUsd() >= origin.priceUsd();
+            if (predictedUp == actualUp) directionMatches++;
+            if (predictedUp && actualUp) truePositives++;
+            else if (predictedUp) falsePositives++;
+            else if (actualUp) falseNegatives++;
+            else trueNegatives++;
             samples++;
         }
 
         Map<String, Object> backtest = new LinkedHashMap<>();
+        double precision = truePositives + falsePositives == 0
+                ? Double.NaN : (double) truePositives / (truePositives + falsePositives);
+        double recall = truePositives + falseNegatives == 0
+                ? Double.NaN : (double) truePositives / (truePositives + falseNegatives);
         backtest.put("samples", samples);
         backtest.put("maeUsd", samples == 0 ? null : absoluteError / samples);
         backtest.put("mapePct", samples == 0 ? null : percentageError / samples);
         backtest.put("directionalAccuracyPct", samples == 0 ? null : 100.0 * directionMatches / samples);
+        backtest.put("precisionPct", Double.isFinite(precision) ? 100.0 * precision : null);
+        backtest.put("recallPct", Double.isFinite(recall) ? 100.0 * recall : null);
+        backtest.put("f1Pct", Double.isFinite(precision) && Double.isFinite(recall)
+                && precision + recall > 0 ? 200.0 * precision * recall / (precision + recall) : null);
+        backtest.put("truePositives", truePositives);
+        backtest.put("falsePositives", falsePositives);
+        backtest.put("trueNegatives", trueNegatives);
+        backtest.put("falseNegatives", falseNegatives);
         double forecastPrice = currentTrend.predict(forecastTime);
         double forecastChangePct = (forecastPrice / latest.priceUsd() - 1) * 100;
         boolean directionallySupported = samples >= 5 && 100.0 * directionMatches / samples >= 55.0;
@@ -449,6 +525,41 @@ public final class MarketDataService {
             throw new IllegalStateException("Market provider returned an empty response");
         }
         return response;
+    }
+
+    private JsonNode requestHistoricalPrice(RestClient client, String path) {
+        boolean coinGeckoRequest = client == coinGecko;
+        Object requestLock = coinGeckoRequest ? coinGeckoHistoryRequestLock : historyRequestLock;
+        synchronized (requestLock) {
+            long now = System.nanoTime();
+            if (coinGeckoRequest && now < coinGeckoHistoryCooldownUntilNanos) {
+                throw new IllegalStateException("CoinGecko historical data is temporarily rate-limited");
+            }
+            long nextRequestNanos = coinGeckoRequest
+                    ? nextCoinGeckoHistoryRequestNanos : nextHistoryRequestNanos;
+            long delayNanos = nextRequestNanos - now;
+            if (delayNanos > 0) {
+                try {
+                    TimeUnit.NANOSECONDS.sleep(delayNanos);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while pacing historical price requests", exception);
+                }
+            }
+            long next = System.nanoTime() + Duration.ofMillis(2_200).toNanos();
+            if (coinGeckoRequest) nextCoinGeckoHistoryRequestNanos = next;
+            else nextHistoryRequestNanos = next;
+        }
+        try {
+            return request(client, path);
+        } catch (HttpClientErrorException.TooManyRequests exception) {
+            if (coinGeckoRequest) {
+                synchronized (coinGeckoHistoryRequestLock) {
+                    coinGeckoHistoryCooldownUntilNanos = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+                }
+            }
+            throw exception;
+        }
     }
 
     private Map<String, Object> unavailableSnapshot() {

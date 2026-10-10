@@ -2,12 +2,13 @@ import { api, API_BASE_URL } from "./api.js";
 import { connectLive } from "./websocket.js";
 
 const $ = (selector) => document.querySelector(selector);
-const state = { transactionPage: 0, blockPage: 0, txQuery: "", txLevel: "", currentView: "overview", socket: "connecting", refreshSeconds: Number(localStorage.getItem("dashboard-refresh-seconds")) || 15 };
+const state = { transactionPage: 0, blockPage: 0, txQuery: "", txLevel: "", currentView: "overview", socket: "connecting", refreshSeconds: Number(localStorage.getItem("dashboard-refresh-seconds")) || 15, forecastResults: new Map(), forecastErrors: new Map(), forecastBulkKey: "", forecastBulkPromise: null, forecastBulkDoneKey: "", forecastBulkCompleted: 0 };
 let refreshTimer;
 let previousTrafficSnapshotAt = 0;
 let previousTrafficLevel = "";
 const fmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const dateTime = (value) => value ? new Date(value).toLocaleString() : "—";
+const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 const shortHash = (value, length = 16) => value && value.length > length ? `${value.slice(0, length)}…` : value || "—";
 const safe = (value) => String(value ?? "—").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const emptyRow = (columns, text) => `<tr><td colspan="${columns}" class="empty-row">${safe(text)}</td></tr>`;
@@ -37,7 +38,7 @@ function renderTransactionRows(rows, target, detailed = false) {
     }).join("") : emptyRow(detailed ? 9 : 6, "No transactions match this view yet.");
 }
 
-function drawChart(canvas, values, color = "#ee762a", labels = [], hoverPoints = null, showTime = false, hoverDetails = null) {
+function drawChart(canvas, values, color = "#ee762a", labels = [], hoverPoints = null, showTime = false, layoutOptions = {}) {
     if (!canvas) return;
     const host = canvas.parentElement;
     const rect = canvas.getBoundingClientRect();
@@ -51,8 +52,8 @@ function drawChart(canvas, values, color = "#ee762a", labels = [], hoverPoints =
     const width = rect.width;
     const height = rect.height;
     const points = (values || []).map(Number).filter(Number.isFinite);
-    host.classList.toggle("has-data", points.length > 1);
-    if (points.length < 2) {
+    host.classList.toggle("has-data", points.length > 0);
+    if (points.length === 0) {
         hideChartHover(host);
         return;
     }
@@ -70,22 +71,27 @@ function drawChart(canvas, values, color = "#ee762a", labels = [], hoverPoints =
         context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke();
         context.fillText(fmt.format(max - (max - min) * tick / 3), 0, y + 3);
     }
-    const coords = points.map((point, index) => ({ x: pad.left + chartWidth * index / (points.length - 1), y: pad.top + chartHeight * (1 - (point - min) / (max - min || 1)) }));
-    const gradient = context.createLinearGradient(0, pad.top, 0, height - pad.bottom);
-    gradient.addColorStop(0, `${color}28`); gradient.addColorStop(1, `${color}00`);
-    context.beginPath(); coords.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
-    context.lineTo(coords.at(-1).x, height - pad.bottom); context.lineTo(coords[0].x, height - pad.bottom); context.closePath(); context.fillStyle = gradient; context.fill();
-    context.beginPath(); coords.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
-    context.strokeStyle = color; context.lineWidth = 2; context.stroke();
+    const coords = points.map((point, index) => ({
+        x: points.length === 1 ? pad.left + chartWidth / 2 : pad.left + chartWidth * index / (points.length - 1),
+        y: pad.top + chartHeight * (1 - (point - min) / (max - min || 1))
+    }));
+    if (points.length > 1) {
+        const gradient = context.createLinearGradient(0, pad.top, 0, height - pad.bottom);
+        gradient.addColorStop(0, `${color}28`); gradient.addColorStop(1, `${color}00`);
+        context.beginPath(); coords.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+        context.lineTo(coords.at(-1).x, height - pad.bottom); context.lineTo(coords[0].x, height - pad.bottom); context.closePath(); context.fillStyle = gradient; context.fill();
+        context.beginPath(); coords.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+        context.strokeStyle = color; context.lineWidth = 2; context.stroke();
+    }
     coords.forEach((point, index) => { if (index % Math.max(1, Math.floor(points.length / 10)) === 0) { context.beginPath(); context.arc(point.x, point.y, 2.4, 0, Math.PI * 2); context.fillStyle = color; context.fill(); } });
     if (labels.length === points.length) {
         context.fillStyle = "#a3a9a3";
-        for (const index of [0, Math.floor((points.length - 1) / 2), points.length - 1]) {
+        for (const index of new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])) {
             context.fillText(labels[index], Math.max(pad.left, coords[index].x - 20), height - 5);
         }
     }
     if (hoverPoints?.length === points.length) {
-        attachChartHover(canvas, hoverPoints, coords, { pad, chartHeight, chartWidth, showTime, hoverDetails });
+        attachChartHover(canvas, hoverPoints, coords, { pad, chartHeight, chartWidth, showTime, ...layoutOptions });
     } else {
         canvas.onpointermove = null;
         canvas.onpointerdown = null;
@@ -124,6 +130,8 @@ function trafficChartData(data, metric) {
 
 function renderTrafficChart(canvas, data, rangeId, prefix, metric, color = "#ee762a") {
     const { values, points } = trafficChartData(data, metric);
+    const emptyMessage = canvas?.parentElement.querySelector(".chart-empty");
+    if (emptyMessage) emptyMessage.textContent = "No monitored blocks in the selected period";
     const select = $(`#${rangeId}`);
     const range = select.value;
     let showTime = range !== "custom" && Number(range) <= 24;
@@ -295,6 +303,164 @@ function buildMarketSummaryMessage(assets = []) {
     return coinUpdates.length
         ? coinUpdates.join("\n")
         : "Market data is still syncing with the latest provider feed.";
+}
+
+function marketActivityScreen(asset) {
+    const price = Number(asset.priceUsd);
+    const change = Number(asset.priceChange24hPct);
+    const volume = Number(asset.volume24hUsd);
+    const marketCap = Number(asset.marketCapUsd);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(change)
+        || !Number.isFinite(volume) || volume < 0 || !Number.isFinite(marketCap) || marketCap <= 0) return null;
+
+    const turnoverPct = volume / marketCap * 100;
+    const signal = turnoverPct >= 5 && change <= -2 ? "SELL RISK"
+        : turnoverPct >= 5 && change >= 2 ? "BUY WATCH" : "HOLD";
+    return { asset, price, change, turnoverPct, signal };
+}
+
+function marketActivityScreens(assets = []) {
+    const priority = { "SELL RISK": 0, "BUY WATCH": 1, HOLD: 2 };
+    return assets.map(marketActivityScreen).filter(Boolean)
+        .sort((a, b) => priority[a.signal] - priority[b.signal] || b.turnoverPct - a.turnoverPct);
+}
+
+function marketActivityReason(screen) {
+    const turnover = `${fmt.format(screen.turnoverPct)}%`;
+    if (screen.signal === "SELL RISK") {
+        return `High 24h turnover (${turnover}) with a ${fmt.format(Math.abs(screen.change))}% price decline.`;
+    }
+    if (screen.signal === "BUY WATCH") {
+        return `High 24h turnover (${turnover}) with a ${fmt.format(screen.change)}% price rise.`;
+    }
+    return `No high-turnover directional threshold met (${turnover} turnover).`;
+}
+
+function renderMarketActivityScreens(assets, stale) {
+    const target = $("#market-traffic-signals");
+    if (!target) return;
+    if (stale) {
+        target.innerHTML = emptyRow(6, "Market quotes are stale; current watch signals are unavailable.");
+        return;
+    }
+    const screens = marketActivityScreens(assets).slice(0, 8);
+    target.innerHTML = screens.length ? screens.map(({ asset, price, change, turnoverPct, signal }) => {
+        const state = signal === "BUY WATCH" ? "buy" : signal === "SELL RISK" ? "sell" : "hold";
+        return `<tr><td><strong>${safe(asset.name)}</strong><span class="asset-symbol">${safe(asset.symbol)}</span></td>
+            <td class="mono">${safe(usd(price))}</td>
+            <td class="mono ${change >= 0 ? "positive" : "negative"}">${change > 0 ? "+" : ""}${fmt.format(change)}%</td>
+            <td class="mono">${fmt.format(turnoverPct)}%</td>
+            <td><span class="market-signal-badge ${state}">${signal}</span></td>
+            <td>${safe(marketActivityReason({ signal, change, turnoverPct }))}</td></tr>`;
+    }).join("") : emptyRow(6, "Current provider quotes do not contain enough data to screen.");
+}
+
+function renderForecastAssetRows(assets, completed, total, loading = false) {
+    const target = $("#forecast-assets-body");
+    const status = $("#forecast-list-status");
+    if (!target || !status) return;
+    const available = assets.filter((asset) => state.forecastResults.get(asset.id)?.available);
+    const insufficient = [...state.forecastResults.values()]
+        .filter((result) => result.available === false && !result.historyError).length;
+    const failed = state.forecastErrors.size;
+    status.textContent = loading
+        ? `Checking real price history at a provider-safe pace: ${completed} of ${total} coins · ${available.length} with enough history`
+        : `${available.length} predictions from ${total} checked coins · ${insufficient} lacked sufficient history · ${failed} provider requests failed.`;
+    target.innerHTML = available.length ? available.map((asset) => {
+        const result = state.forecastResults.get(asset.id);
+        const backtest = result.backtest || {};
+        const change = Number(result.forecastChangePct);
+        return `<tr><td><button class="forecast-asset-link" type="button" data-forecast-coin="${safe(asset.id)}"><strong>${safe(asset.name)}</strong><span class="asset-symbol">${safe(String(asset.symbol || "").toUpperCase())}</span></button></td>
+            <td class="mono">${safe(usd(result.forecastPriceUsd))}</td>
+            <td class="mono ${change >= 0 ? "positive" : "negative"}">${change > 0 ? "+" : ""}${fmt.format(change)}%</td>
+            <td class="mono">${Number.isFinite(backtest.directionalAccuracyPct) ? `${fmt.format(backtest.directionalAccuracyPct)}%` : "—"}</td>
+            <td class="mono">${Number.isFinite(backtest.precisionPct) ? `${fmt.format(backtest.precisionPct)}%` : "—"}</td>
+            <td class="mono">${fmt.format(backtest.samples || 0)}</td>
+            <td>${safe(result.source || "Historical provider")}${result.stale ? " · cached" : ""}</td></tr>`;
+    }).join("") : `<tr><td colspan="7" class="empty-row">${loading
+        ? "Checking market coins for sufficient real historical price data."
+        : "No coins in the current market list have enough real history for this forecast."}</td></tr>`;
+}
+
+function loadAllAssetForecasts(assets, horizon, priorityCoinId, priorityForecast) {
+    const marketAssets = assets.filter((asset) => asset?.id);
+    const key = `${horizon}:${marketAssets.map((asset) => asset.id).sort().join(",")}`;
+    if (state.forecastBulkKey === key) {
+        if (state.forecastBulkPromise) return state.forecastBulkPromise;
+        if (state.forecastBulkDoneKey === key) {
+            renderForecastAssetRows(marketAssets, marketAssets.length, marketAssets.length);
+            return Promise.resolve();
+        }
+    }
+    const priorityAsset = marketAssets.find((asset) => asset.id === priorityCoinId);
+    const eligibleAssets = priorityAsset
+        ? [priorityAsset, ...marketAssets.filter((asset) => asset.id !== priorityCoinId)]
+        : marketAssets;
+    state.forecastBulkKey = key;
+    state.forecastBulkDoneKey = "";
+    state.forecastBulkCompleted = 0;
+    state.forecastResults.clear();
+    state.forecastErrors.clear();
+    let completed = 0;
+    renderForecastAssetRows(eligibleAssets, completed, eligibleAssets.length, true);
+    let nextIndex = 0;
+    let nextRequestAt = Date.now() + (priorityForecast ? 2200 : 0);
+    const worker = async () => {
+        while (nextIndex < eligibleAssets.length) {
+            const asset = eligibleAssets[nextIndex++];
+            try {
+                let result;
+                if (asset.id === priorityCoinId && priorityForecast) {
+                    result = priorityForecast;
+                } else {
+                    const delay = Math.max(0, nextRequestAt - Date.now());
+                    if (delay) await wait(delay);
+                    nextRequestAt = Date.now() + 2200;
+                    result = await api.marketForecast(asset.id, "365", horizon, undefined, undefined, asset.symbol);
+                }
+                if (state.forecastBulkKey !== key) return;
+                const existing = state.forecastResults.get(asset.id);
+                if (result.historyError) {
+                    if (!existing?.available) state.forecastErrors.set(asset.id, result.historyError);
+                } else if (result.available || !existing?.available) {
+                    state.forecastResults.set(asset.id, result);
+                    state.forecastErrors.delete(asset.id);
+                }
+            } catch (error) {
+                if (state.forecastBulkKey === key && !state.forecastResults.get(asset.id)?.available) {
+                    state.forecastErrors.set(asset.id, error.message || "Provider request failed");
+                }
+                console.warn(`Could not load ${asset.symbol || asset.id} forecast:`, error);
+            } finally {
+                completed++;
+                if (state.forecastBulkKey === key) state.forecastBulkCompleted = completed;
+                if (state.forecastBulkKey === key) {
+                    renderForecastAssetRows(eligibleAssets, completed, eligibleAssets.length, completed < eligibleAssets.length);
+                }
+            }
+        }
+    };
+    state.forecastBulkPromise = worker().then(() => {
+        if (state.forecastBulkKey === key) {
+            renderForecastAssetRows(eligibleAssets, completed, eligibleAssets.length, false);
+            state.forecastBulkDoneKey = key;
+        }
+    }).finally(() => {
+        if (state.forecastBulkKey === key) state.forecastBulkPromise = null;
+    });
+    return state.forecastBulkPromise;
+}
+
+function marketActivityNotification(market) {
+    if (!market || market.stale) return "Market quotes are unavailable or stale; current watch signals are unavailable.";
+    const candidates = marketActivityScreens(market?.assets)
+        .filter((screen) => screen.signal !== "HOLD").slice(0, 5);
+    if (!candidates.length) {
+        return "No current BUY WATCH or SELL RISK flags meet the disclosed volume-and-price screen.";
+    }
+    return candidates.map(({ asset, price, change, turnoverPct, signal }) =>
+        `${asset.name} (${String(asset.symbol || "").toUpperCase()}) | ${signal} | ${usd(price)} | ${change > 0 ? "+" : ""}${fmt.format(change)}% | ${fmt.format(turnoverPct)}% turnover`
+    ).join("\n");
 }
 
 function buildTrafficSummaryMessage(level, count, sizeMb, fastestFee) {
@@ -707,18 +873,27 @@ async function loadMarketData() {
     const assetsById = new Map(fallbackMarketAssets.map((asset) => [asset.id, asset]));
     providerAssets.forEach((asset) => assetsById.set(asset.id, asset));
     const assets = [...assetsById.values()];
-    const requestedAssetId = $("#market-asset-select").value || localStorage.getItem("market-analysis-asset") || "bitcoin";
-    const selectedAsset = assets.find((asset) => asset.id === requestedAssetId) || assets[0];
-    if (selectedAsset) {
-        $("#market-asset-select").innerHTML = assets.map((asset) => `<option value="${safe(asset.id)}">${safe(asset.name)} · ${safe(asset.symbol)}</option>`).join("");
+    const marketAssetId = localStorage.getItem("market-analysis-asset")
+        || $("#market-asset-select").value || "bitcoin";
+    const forecastAssetId = localStorage.getItem("market-forecast-asset") || "bitcoin";
+    const selectedAsset = assets.find((asset) => asset.id === marketAssetId) || assets[0];
+    const forecastAsset = assets.find((asset) => asset.id === forecastAssetId) || assets[0];
+    if (selectedAsset && forecastAsset) {
+        const options = assets.map((asset) => `<option value="${safe(asset.id)}">${safe(asset.name)} · ${safe(asset.symbol)}</option>`).join("");
+        $("#market-asset-select").innerHTML = options;
+        $("#forecast-asset-select").innerHTML = options;
         $("#market-asset-select").value = selectedAsset.id;
+        $("#forecast-asset-select").value = forecastAsset.id;
         localStorage.setItem("market-analysis-asset", selectedAsset.id);
+        localStorage.setItem("market-forecast-asset", forecastAsset.id);
     }
     const coinId = selectedAsset?.id || "bitcoin";
+    const forecastCoinId = forecastAsset?.id || "bitcoin";
     const [historyResult, forecastResult] = await Promise.all([
         api.marketHistory(coinId, range, bounds.from, bounds.to, selectedAsset?.symbol)
             .then((value) => ({ value }), (error) => ({ error })),
-        api.marketForecast(coinId, range, horizon, bounds.from, bounds.to).then((value) => ({ value }), (error) => ({ error }))
+        api.marketForecast(forecastCoinId, "365", horizon, undefined, undefined, forecastAsset?.symbol)
+            .then((value) => ({ value }), (error) => ({ error }))
     ]);
     const market = data.market;
     const global = data.global;
@@ -736,6 +911,7 @@ async function loadMarketData() {
     const readings = Array.isArray(data.fearGreed) ? data.fearGreed : [];
     const latestSentiment = readings[0];
     window.marketAssets = assets;
+    renderMarketActivityScreens(assets, data.stale);
     $("#market-summary-sentiment").textContent = latestSentiment?.value ?? "—";
     $("#market-summary-sentiment-label").textContent = latestSentiment?.classification || "Alternative.me index";
     $("#market-price").textContent = market ? usd(market.priceUsd) : "—";
@@ -769,10 +945,11 @@ async function loadMarketData() {
         history.map((point) => oneDayView
             ? new Date(point.timestamp).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
             : new Date(point.timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })),
-        history, oneDayView, selectedAsset);
+        history, oneDayView, { hoverDetails: selectedAsset });
     const dateLabel = (value) => value ? new Date(value).toLocaleDateString() : "—";
     const rangeLabels = { "1": "24 hours", "7": "7 days", "30": "30 days", "365": "1 year", max: "all available history", custom: "custom dates" };
     $("#market-history-title").textContent = `${selectedAsset?.symbol || "BTC"} / USD · ${rangeLabels[range] || "selected range"}`;
+    $("#forecast-heading").textContent = `${forecastAsset?.symbol || "BTC"} price trend estimate`;
     $("#market-history-period").textContent = history.length
         ? `${historyData.source} · ${dateLabel(historyData.startDate)} to ${dateLabel(historyData.endDate)} · ${fmt.format(historyData.observationCount || history.length)} observations`
         : historyResult.error?.message || "No real provider observations are available for this range.";
@@ -790,6 +967,14 @@ async function loadMarketData() {
     direction.dataset.trend = periodReturn == null ? "" : periodReturn > 1 ? "up" : periodReturn < -1 ? "down" : "flat";
 
     const forecast = forecastResult.value;
+    if (state.currentView === "forecast") {
+        loadAllAssetForecasts(assets, horizon, forecastCoinId, forecast).catch(reportError);
+    }
+    if (state.currentView === "forecast" && forecast?.available) {
+        state.forecastResults.set(forecast.coinId || forecastCoinId, forecast);
+        state.forecastErrors.delete(forecast.coinId || forecastCoinId);
+        renderForecastAssetRows(assets, state.forecastBulkCompleted, assets.length, Boolean(state.forecastBulkPromise));
+    }
     const backtest = forecast?.backtest || {};
     $("#forecast-price").textContent = forecast?.available ? usd(forecast.forecastPriceUsd) : "—";
     $("#forecast-date").textContent = forecast?.available
@@ -802,12 +987,15 @@ async function loadMarketData() {
     $("#forecast-mae").textContent = Number.isFinite(backtest.maeUsd) ? usd(backtest.maeUsd) : "—";
     $("#forecast-mape").textContent = Number.isFinite(backtest.mapePct) ? `${fmt.format(backtest.mapePct)}%` : "—";
     $("#forecast-direction").textContent = Number.isFinite(backtest.directionalAccuracyPct) ? `${fmt.format(backtest.directionalAccuracyPct)}%` : "—";
+    $("#forecast-precision").textContent = Number.isFinite(backtest.precisionPct) ? `${fmt.format(backtest.precisionPct)}%` : "—";
+    $("#forecast-recall").textContent = Number.isFinite(backtest.recallPct) ? `${fmt.format(backtest.recallPct)}%` : "—";
+    $("#forecast-f1").textContent = Number.isFinite(backtest.f1Pct) ? `${fmt.format(backtest.f1Pct)}%` : "—";
     $("#forecast-samples").textContent = fmt.format(backtest.samples || 0);
     $("#forecast-signal").textContent = forecast?.available ? forecast.signal || "HOLD" : "No reliable signal";
     $("#forecast-signal").dataset.state = forecast?.signal === "BUY WATCH" ? "up"
         : forecast?.signal === "SELL WATCH" ? "down" : "neutral";
     $("#forecast-note").textContent = forecast?.available
-        ? `Walk-forward test at ${horizon}-day horizon · ${backtest.samples || 0} historical forecasts · baseline only, not financial advice.`
+        ? `Walk-forward test at ${horizon}-day horizon · upward precision is the share of upward calls that were correct; recall is the share of actual upward moves found; F1 balances both · ${backtest.samples || 0} historical forecasts · baseline only, not financial advice.`
         : forecast?.message || forecastResult.error?.message || "Scores will appear when enough real history is available.";
     trackMarketForecast(forecast, assets, data);
     await loadCompositionChart(assets);
@@ -859,6 +1047,18 @@ function formatMarketSummaryRows(message) {
     return rows.length ? `<div class="notification-market-summary">${rows.join("")}</div>` : null;
 }
 
+function formatMarketActivityRows(message) {
+    if (!message || !String(message).includes("|")) return `<span>${safe(message || "No current market screen.")}</span>`;
+    const rows = String(message).split(/\n/).map((line) => {
+        const [asset, signal, price, change, turnover] = line.split("|").map((value) => value.trim());
+        const match = asset?.match(/^(.+?)\s*\(([^)]+)\)$/);
+        if (!match || !signal || !price || !change || !turnover) return null;
+        const state = signal === "BUY WATCH" ? "buy" : "sell";
+        return `<div class="notification-signal-row"><div><strong>${safe(match[1])}</strong><small>${safe(match[2])}</small></div><span class="market-signal-badge ${state}">${safe(signal)}</span><small>${safe(price)} · ${safe(change)} · ${safe(turnover)}</small></div>`;
+    }).filter(Boolean);
+    return rows.length ? `<div class="notification-market-signals">${rows.join("")}</div>` : `<span>${safe(message)}</span>`;
+}
+
 function renderNotificationList(items = []) {
     const list = document.getElementById("notification-list");
     if (!list) return;
@@ -869,8 +1069,10 @@ function renderNotificationList(items = []) {
     list.innerHTML = items.slice(0, 5).map((item) => {
         const severity = (item.severity || "INFO").toUpperCase();
         const tone = severity === "CRITICAL" || severity === "HIGH" ? "warning" : "alert";
-        const body = item.title === "Coin prices · 24-hour change"
+        const body = item.title?.startsWith("Coin prices · 24-hour change")
             ? formatMarketSummaryRows(item.message)
+            : item.title === "Market activity watch"
+                ? formatMarketActivityRows(item.message)
             : `<span>${safe(item.message || "Monitoring event detected")}</span>`;
         return `<div class="notification-item ${tone}"><strong>${safe(item.title || "Network alert")}</strong>${body}<small>${safe(item.time || "Just now")}</small></div>`;
     }).join("");
@@ -890,21 +1092,32 @@ function updateNotificationBell(stats = {}) {
 
 async function refreshNotificationCenter() {
     try {
-        const [stats, alerts] = await Promise.all([api.stats(), api.alerts()]);
+        const [stats, alerts, marketResult] = await Promise.all([
+            api.stats(), api.alerts(), api.market().then((value) => ({ value }), (error) => ({ error }))
+        ]);
+        const market = marketResult.value;
         updateNotificationBell(stats);
         const stored = readNotificationEvents();
         const items = stored.length ? stored.slice(0, 5).map((item) => ({
-            title: item.title || "Network alert",
+            title: market?.stale && item.title === "Coin prices · 24-hour change"
+                ? `${item.title} · cached` : item.title || "Network alert",
             message: item.message || "Monitoring event detected",
             severity: item.severity || "INFO",
             time: item.time ? dateTime(item.time) : "Just now"
         })) : Array.isArray(alerts) && alerts.length ? alerts.slice(0, 5).map((alert) => ({
-            title: alert.alertType || "Network alert",
+            title: market?.stale && alert.alertType === "Coin prices · 24-hour change"
+                ? `${alert.alertType} · cached` : alert.alertType || "Network alert",
             message: alert.message || "Monitoring event detected",
             severity: alert.severity || "INFO",
             time: dateTime(alert.detectedAt)
         })) : [{ title: "Monitor healthy", message: "No active alerts right now.", severity: "INFO", time: "System ready" }];
-        renderNotificationList(items);
+        items.unshift({
+            title: "Market activity watch",
+            message: marketActivityNotification(market),
+            severity: "INFO",
+            time: market?.marketUpdatedAt ? dateTime(market.marketUpdatedAt) : "Quote status unavailable"
+        });
+        renderNotificationList(items.slice(0, 5));
     } catch (error) {
         updateNotificationBell({ openAlerts: 0 });
         const stored = readNotificationEvents();
@@ -926,7 +1139,7 @@ async function loadOverview() {
     } else if (latest && latest.height > 0 && previousBlock === 0) {
         localStorage.setItem(previousBlockKey, String(latest.height));
     }
-    if (Array.isArray(market.assets) && market.assets.length) {
+    if (!market.stale && Array.isArray(market.assets) && market.assets.length) {
         const marketSummary = buildMarketSummaryMessage(market.assets);
         const marketSeenKey = "bitcoin-monitor-last-market-summary";
         const lastMarketSummary = localStorage.getItem(marketSeenKey);
@@ -1131,7 +1344,7 @@ async function pollBrowserAlerts() {
 const viewCopy = {
     overview: ["Dashboard", "Bitcoin Network Overview", "Live transaction activity and model-derived risk signals."],
     market: ["Market Data", "Bitcoin market overview", "Live price, supply, global crypto metrics, historical prices, and market sentiment."],
-    forecast: ["Market Forecast", "Coin market trend estimate", "Review a historical trend estimate, walk-forward accuracy, and outcome alerts for the selected coin."],
+    forecast: ["AI Predictions", "Bitcoin and coin watch signals", "Review fitted price trends, walk-forward precision and accuracy, and high-turnover market screens."],
     "live-traffic": ["Live Traffic", "Live transaction traffic", "Mempool conditions, fee estimates, and observed confirmed-block activity."],
     transactions: ["Transactions", "Monitored transactions", "Search and inspect transactions collected from confirmed blocks."],
     blocks: ["Blocks", "Observed blocks", "Recent confirmed blocks recorded by this monitor."],
@@ -1168,7 +1381,9 @@ function setView(name, updateHash = true) {
 
 function reportError(error) { console.error(error); showToast(error.message || "Could not refresh data. Retrying automatically."); }
 function refreshCurrent() {
-    const jobs = [loadOverview(), loadMarketData()];
+    const jobs = [];
+    if (state.currentView === "overview") jobs.push(loadOverview());
+    if (state.currentView === "market" || state.currentView === "forecast") jobs.push(loadMarketData());
     if (state.currentView === "transactions") jobs.push(loadTransactions());
     if (state.currentView === "blocks") jobs.push(loadBlocks());
     if (state.currentView === "live-traffic") jobs.push(loadLiveTraffic(), loadMempool());
@@ -1197,9 +1412,24 @@ function bindTrafficRangeControl(rangeId, prefix, canvasId, refresh) {
     const customControls = $(`#${prefix}-custom-range`);
     const applyButton = $(`#${prefix}-apply`);
     if (!select) return;
-    const apply = () => {
+    const apply = async () => {
         hideChartHover($(`#${canvasId}`).parentElement);
-        refresh().catch(reportError);
+        if (applyButton) {
+            applyButton.disabled = true;
+            applyButton.dataset.originalText = applyButton.textContent;
+            applyButton.textContent = "Loading...";
+        }
+        try {
+            await refresh();
+        } catch (error) {
+            reportError(error);
+        } finally {
+            if (applyButton) {
+                applyButton.disabled = false;
+                applyButton.textContent = applyButton.dataset.originalText || "Apply";
+                delete applyButton.dataset.originalText;
+            }
+        }
     };
     if (!customControls || !applyButton) {
         select.addEventListener("change", () => {
@@ -1266,6 +1496,17 @@ $("#market-asset-select").addEventListener("change", (event) => {
     localStorage.setItem("market-analysis-asset", event.target.value);
     loadMarketData().catch(reportError);
 });
+$("#forecast-asset-select").addEventListener("change", (event) => {
+    localStorage.setItem("market-forecast-asset", event.target.value);
+    loadMarketData().catch(reportError);
+});
+$("#forecast-assets-body").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-forecast-coin]");
+    if (!button) return;
+    $("#forecast-asset-select").value = button.dataset.forecastCoin;
+    $("#forecast-asset-select").dispatchEvent(new Event("change"));
+    $("#market-forecast-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 $("#market-composition-mode").addEventListener("change", () => loadCompositionChart(window.marketAssets || []).catch(reportError));
 $("#market-notifications").addEventListener("click", (event) => enableBrowserAlerts(event.currentTarget));
 $("#traffic-notifications")?.addEventListener("click", (event) => enableBrowserAlerts(event.currentTarget));
@@ -1273,6 +1514,7 @@ $("#notification-bell")?.addEventListener("click", () => {
     const panel = $("#notification-panel");
     if (!panel) return;
     panel.hidden = !panel.hidden;
+    if (!panel.hidden) refreshNotificationCenter().catch(reportError);
 });
 $("#notification-mark-read")?.addEventListener("click", () => {
     $("#notification-panel").hidden = true;

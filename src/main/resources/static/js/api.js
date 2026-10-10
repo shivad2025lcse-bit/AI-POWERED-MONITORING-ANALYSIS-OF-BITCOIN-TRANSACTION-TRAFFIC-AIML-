@@ -22,10 +22,11 @@ export const api = {
         if (from != null && to != null) { params.set("from", from); params.set("to", to); }
         return request(`/api/market/history?${params}`);
     },
-    marketForecast: (coinId, range, horizonDays, from, to) => {
+    marketForecast: (coinId, range, horizonDays, from, to, symbol) => {
         const params = new URLSearchParams({
             coinId: coinId || "bitcoin", range: range || "30", horizonDays: String(horizonDays || 7)
         });
+        if (symbol) params.set("symbol", symbol);
         if (from != null && to != null) { params.set("from", from); params.set("to", to); }
         return request(`/api/market/forecast?${params}`);
     },

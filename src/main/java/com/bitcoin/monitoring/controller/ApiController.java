@@ -261,9 +261,10 @@ public class ApiController {
     @GetMapping("/market/forecast")
     public Map<String, Object> marketForecast(@RequestParam(defaultValue = "bitcoin") String coinId,
             @RequestParam(defaultValue = "30") String range, @RequestParam(defaultValue = "7") int horizonDays,
-            @RequestParam(required = false) Long from, @RequestParam(required = false) Long to) {
+            @RequestParam(required = false) Long from, @RequestParam(required = false) Long to,
+            @RequestParam(required = false) String symbol) {
         try {
-            return marketData.getMarketForecast(coinId, range, horizonDays, from, to);
+            return marketData.getMarketForecast(coinId, range, horizonDays, from, to, symbol);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
         }

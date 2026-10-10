@@ -1587,6 +1587,205 @@ dialog::backdrop {
     color: var(--red)
 }
 
+.forecast-all-assets {
+    margin: 0 16px 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px
+}
+
+.forecast-list-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px
+}
+
+.forecast-list-heading h3 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 13px
+}
+
+.forecast-list-heading span {
+    color: var(--muted);
+    font-size: 10px;
+    text-align: right
+}
+
+.forecast-assets-table {
+    min-width: 860px
+}
+
+.forecast-asset-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer
+}
+
+.forecast-asset-link:hover strong {
+    color: var(--orange)
+}
+
+.forecast-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 4px 16px 12px
+}
+
+.forecast-controls {
+    display: flex;
+    align-items: end;
+    gap: 10px
+}
+
+.forecast-controls label {
+    display: grid;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 10px
+}
+
+.forecast-controls select {
+    min-height: 31px;
+    max-width: 190px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 8px;
+    background: #fff;
+    color: var(--ink);
+    font: 11px "DM Sans", sans-serif
+}
+
+.forecast-summary > div,
+.forecast-metrics > div {
+    display: grid;
+    align-content: start;
+    gap: 5px;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 10px 11px;
+    background: #fcfcfa
+}
+
+.forecast-summary span,
+.forecast-metrics span {
+    color: var(--muted);
+    font-size: 10px
+}
+
+.forecast-summary strong {
+    font: 700 17px var(--display);
+    overflow-wrap: anywhere
+}
+
+.forecast-summary small {
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.5
+}
+
+.forecast-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0 16px
+}
+
+.forecast-metrics strong {
+    font: 600 14px var(--mono);
+    overflow-wrap: anywhere
+}
+
+.forecast-note,
+.market-signal-note {
+    margin: 11px 16px 14px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.6
+}
+
+.market-signal-panel {
+    margin-bottom: 16px
+}
+
+.market-signal-table {
+    min-width: 760px
+}
+
+.market-signal-table td:last-child {
+    min-width: 250px;
+    color: var(--muted);
+    font-size: 10px
+}
+
+.market-signal-badge {
+    display: inline-block;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font: 9px var(--mono);
+    white-space: nowrap
+}
+
+.market-signal-badge.buy {
+    background: #e8f3ec;
+    color: #32734f
+}
+
+.market-signal-badge.sell {
+    background: #f8e9e6;
+    color: #b44740
+}
+
+.market-signal-badge.hold {
+    background: #f0f1ed;
+    color: #737a73
+}
+
+.notification-market-signals {
+    display: grid;
+    gap: 6px;
+    padding-top: 5px
+}
+
+.notification-signal-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 3px 7px;
+    border-top: 1px solid #edf1ee;
+    padding-top: 6px
+}
+
+.notification-signal-row > div {
+    display: flex;
+    align-items: baseline;
+    gap: 5px
+}
+
+.notification-signal-row > div strong {
+    font-size: 10px
+}
+
+.notification-signal-row > div small,
+.notification-signal-row > small {
+    color: var(--muted);
+    font-size: 9px
+}
+
+.notification-signal-row > small {
+    grid-column: 1 / -1
+}
+
 #market-history-direction[data-trend="up"] {
     color: var(--green)
 }
@@ -1612,6 +1811,15 @@ dialog::backdrop {
 
     .market-composition-layout {
         grid-template-columns: minmax(0, 1fr)
+    }
+
+    .forecast-controls {
+        align-items: stretch;
+        flex-direction: column
+    }
+
+    .forecast-controls select {
+        max-width: 100%
     }
 
     .composition-chart-host {
@@ -1742,6 +1950,39 @@ dialog::backdrop {
 
     .metric-grid {
         gap: 8px
+    }
+
+    .forecast-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        margin: 0 10px
+    }
+
+    .forecast-summary {
+        gap: 6px;
+        margin-right: 10px;
+        margin-left: 10px
+    }
+
+    .forecast-all-assets {
+        margin-right: 10px;
+        margin-left: 10px
+    }
+
+    .forecast-list-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px
+    }
+
+    .forecast-list-heading span {
+        text-align: left
+    }
+
+    .forecast-note,
+    .market-signal-note {
+        margin-right: 10px;
+        margin-left: 10px
     }
 
     .metric-card {

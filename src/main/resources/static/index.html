@@ -11,7 +11,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/style.css?v=all-available-forecasts-7">
     <style>
         @media(max-width:760px) {
             .topbar-right {
@@ -47,6 +47,7 @@
                 <button class="nav-item" data-view="market"><span class="nav-icon">＄</span>Market Data</button>
                 <button class="nav-item" data-view="live-traffic"><span class="nav-icon">⌁</span>Live Traffic</button>
                 <button class="nav-item" data-view="anomalies"><span class="nav-icon">◎</span>AI Analysis</button>
+                <button class="nav-item" data-view="forecast"><span class="nav-icon">↗</span>AI Predictions</button>
                 <button class="nav-item" data-view="transactions"><span class="nav-icon">⇄</span>Transactions</button>
                 <button class="nav-item" data-view="wallets"><span class="nav-icon">◉</span>Wallets</button>
                 <button class="nav-item" data-view="alerts"><span class="nav-icon">♧</span>Risk Alerts <span
@@ -446,20 +447,27 @@
                             <ul class="composition-legend" id="market-composition-legend"></ul>
                         </div>
                     </article>
-                    <article class="panel forecast-panel">
+                    <article class="panel forecast-panel" id="market-forecast-panel">
                         <div class="panel-header padded">
                             <div>
-                                <div class="panel-kicker">HISTORICAL WALK-FORWARD TEST</div>
-                                <h2>BTC price trend estimate</h2>
+                                <div class="panel-kicker">365-DAY WALK-FORWARD MODEL TEST</div>
+                            <h2 id="forecast-heading">BTC price trend estimate</h2>
                             </div>
+                        <div class="forecast-controls">
+                            <label for="forecast-asset-select">Asset
+                                <select id="forecast-asset-select" aria-label="Asset for price prediction">
+                                    <option value="bitcoin">Bitcoin · BTC</option>
+                                </select>
+                            </label>
                             <label class="forecast-horizon-control" for="forecast-horizon">Forecast horizon
-                                <select id="forecast-horizon" aria-label="Bitcoin forecast horizon">
+                                <select id="forecast-horizon" aria-label="Price prediction horizon">
                                     <option value="1">1 day</option>
                                     <option value="7" selected>7 days</option>
                                     <option value="30">30 days</option>
                                     <option value="90">90 days</option>
                                 </select>
                             </label>
+                        </div>
                         </div>
                         <div class="forecast-summary">
                             <div><span>Estimated price</span><strong id="forecast-price">—</strong><small
@@ -471,13 +479,60 @@
                         <div class="forecast-metrics" aria-live="polite">
                             <div><span>Backtest MAE</span><strong id="forecast-mae">—</strong></div>
                             <div><span>Backtest MAPE</span><strong id="forecast-mape">—</strong></div>
-                            <div><span>Directional accuracy</span><strong id="forecast-direction">—</strong></div>
+                            <div><span>Direction accuracy</span><strong id="forecast-direction">—</strong></div>
+                            <div><span>Upward precision</span><strong id="forecast-precision">—</strong></div>
+                            <div><span>Upward recall</span><strong id="forecast-recall">—</strong></div>
+                            <div><span>Upward F1 score</span><strong id="forecast-f1">—</strong></div>
                             <div><span>Tested forecasts</span><strong id="forecast-samples">—</strong></div>
                         </div>
                         <div class="forecast-signal-wrap"><span>Baseline signal</span><strong id="forecast-signal"
                                 data-state="neutral">No reliable signal</strong></div>
-                        <p class="forecast-note" id="forecast-note">Scores are historical walk-forward results for the
-                            selected horizon, not a guarantee of future performance.</p>
+                        <p class="forecast-note" id="forecast-note">Scores compare model predictions with later real
+                            prices from a rolling 365-day history. They are historical measures, not a guarantee of
+                            future performance or trading advice.</p>
+                        <ul class="forecast-outcomes" id="forecast-outcomes" aria-live="polite"></ul>
+                        <div class="forecast-all-assets">
+                            <div class="forecast-list-heading">
+                                <h3>Predictions for coins with enough real history</h3>
+                                <span id="forecast-list-status" role="status">Open AI Predictions to check the market list.</span>
+                            </div>
+                            <div class="table-scroll">
+                                <table class="market-assets-table forecast-assets-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ASSET</th><th>ESTIMATED PRICE</th><th>FORECAST CHANGE</th>
+                                            <th>DIRECTION ACCURACY</th><th>UPWARD PRECISION</th>
+                                            <th>TESTED FORECASTS</th><th>HISTORY SOURCE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="forecast-assets-body">
+                                        <tr><td colspan="7" class="empty-row">Predictions are checked when this view opens.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </article>
+                    <article class="panel market-signal-panel">
+                        <div class="panel-header padded">
+                            <div>
+                                <div class="panel-kicker">MARKET ACTIVITY SCREEN</div>
+                                <h2>High-turnover coin watch</h2>
+                            </div>
+                            <span class="source-label">LATEST PROVIDER QUOTES</span>
+                        </div>
+                        <p class="market-signal-note">BUY WATCH and SELL RISK are screening flags, not trade instructions.
+                            They use 24-hour traded volume relative to market cap and price movement; this is not
+                            coin-specific blockchain transaction traffic or a guarantee of future performance.</p>
+                        <div class="table-scroll">
+                            <table class="market-signal-table">
+                                <thead>
+                                    <tr><th>ASSET</th><th>PRICE</th><th>24H CHANGE</th><th>24H TURNOVER</th><th>SCREEN</th><th>REASON</th></tr>
+                                </thead>
+                                <tbody id="market-traffic-signals">
+                                    <tr><td colspan="6" class="empty-row">Waiting for current market quotes.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </article>
                     <article class="panel market-assets-panel">
                         <div class="panel-header padded">
@@ -632,6 +687,7 @@
                             <label>From<input id="live-traffic-from" type="date"></label>
                             <label>To<input id="live-traffic-to" type="date"></label>
                             <button class="history-analyze-button" id="live-traffic-apply" type="button">Apply</button>
+                            <span>Shows stored blocks collected since monitoring began; earlier dates have no local records.</span>
                         </div>
                         <div class="chart-wrap large"><canvas id="live-traffic-chart"
                                 aria-label="Live transaction traffic chart"></canvas>
@@ -936,7 +992,7 @@
     <dialog id="detail-dialog"><button class="dialog-close" id="dialog-close" aria-label="Close details">×</button>
         <div id="detail-content"></div>
     </dialog>
-    <script type="module" src="/js/dashboard.js"></script>
+    <script type="module" src="/js/dashboard.js?v=all-available-forecasts-7"></script>
 </body>
 
 </html>

@@ -8,6 +8,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
@@ -74,6 +75,11 @@ class MarketDataServiceTest {
         assertTrue((int) backtest.get("samples") > 0);
         assertEquals(0.0, (double) backtest.get("mapePct"), 1e-8);
         assertEquals(100.0, (double) backtest.get("directionalAccuracyPct"));
+        assertEquals(100.0, (double) backtest.get("precisionPct"));
+        assertEquals(100.0, (double) backtest.get("recallPct"));
+        assertEquals(100.0, (double) backtest.get("f1Pct"));
+        assertEquals((int) backtest.get("samples"), (int) backtest.get("truePositives"));
+        assertEquals(0, backtest.get("falsePositives"));
         assertEquals("BUY WATCH", result.get("signal"));
         assertEquals(100 * (Math.exp(0.07) - 1), (double) result.get("forecastChangePct"), 1e-8);
     }
@@ -81,9 +87,14 @@ class MarketDataServiceTest {
     @Test
     void forecastExplainsWhenSelectedHistoryIsTooShort() {
         Map<String, Object> result = MarketDataService.buildForecastSnapshot(List.of(), "7", 7, false);
+        Map<String, Object> backtest = (Map<String, Object>) result.get("backtest");
 
         assertEquals(false, result.get("available"));
         assertNotNull(result.get("message"));
+        assertEquals(0, backtest.get("samples"));
+        assertNull(backtest.get("precisionPct"));
+        assertNull(backtest.get("recallPct"));
+        assertNull(backtest.get("f1Pct"));
     }
 
     @Test
